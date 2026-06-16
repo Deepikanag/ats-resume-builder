@@ -379,12 +379,6 @@ function saveSetup() {
     const trim = id => document.getElementById(id).value.trim();
     const apiKey = trim('api-key-input');
 
-    // Basic Gemini key format check (AIza...)
-    if (apiKey && !apiKey.startsWith('AIza')) {
-        toastError('That does not look like a valid Gemini API key (should start with AIza).');
-        return;
-    }
-
     localStorage.setItem('apiKey',      apiKey);
     localStorage.setItem('baseResume',  trim('base-resume-input').slice(0, MAX_RESUME));
     localStorage.setItem('userName',    trim('name-input').slice(0, 100));
@@ -426,7 +420,6 @@ function toggleKeyVisibility() {
 async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
-    if (!apiKey.startsWith('AIza')) throw new Error('Invalid API key format.');
 
     const model = localStorage.getItem('geminiModel') || 'gemini-1.5-pro-latest';
 
