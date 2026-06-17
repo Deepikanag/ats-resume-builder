@@ -810,8 +810,12 @@ function loadSettings() {
     document.getElementById('base-resume-input').value = g('baseResume');
     document.getElementById('name-input').value         = g('userName');
     document.getElementById('contact-input').value      = g('userContact');
-    const saved = g('geminiModel') || 'gemini-2.5-flash';
-    document.getElementById('model-select').value = saved;
+    let savedModel = g('geminiModel') || 'gemini-2.5-flash';
+    if (!['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-2.5-pro'].includes(savedModel)) {
+        savedModel = 'gemini-2.5-flash';
+        localStorage.setItem('geminiModel', savedModel);
+    }
+    document.getElementById('model-select').value = savedModel;
     updateApiBadge(!!g('apiKey'));
 }
 
@@ -857,15 +861,20 @@ function toggleKeyVisibility() {
 }
 
 // ── Gemini API ─────────────────────────────────────────────────────────────
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
+const KNOWN_MODELS = new Set(['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro']);
 
 async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
 
-    const selectedModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
-    const modelsToTry = [selectedModel, ...FALLBACK_MODELS.filter(m => m !== selectedModel)];
+    // Always use a known-good model; ignore stale localStorage values
+    let saved = localStorage.getItem('geminiModel') || '';
+    if (!KNOWN_MODELS.has(saved)) {
+        saved = 'gemini-2.5-flash';
+        localStorage.setItem('geminiModel', saved);
+    }
 
+    const url = `${GEMINI_BASE}/${encodeURIComponent(saved)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const body = {
         system_instruction: { parts: [{ text: String(systemPrompt) }] },
         contents: [{ role: 'user', parts: [{ text: String(userPrompt) }] }],
@@ -882,55 +891,32 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
         ]
     };
 
-    let lastErr = '';
-    for (const model of modelsToTry) {
-        const url = `${GEMINI_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-        for (let attempt = 0; attempt < 2; attempt++) {
-            if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
-
-            let res;
-            try {
-                res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-            } catch (netErr) {
-                throw new Error('Network error — check your internet connection and try again.');
-            }
-
-            if (res.ok) {
-                const data = await res.json();
-                const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!text) throw new Error('Gemini returned an empty response. Please try again.');
-                if (model !== selectedModel) {
-                    toast(`Used ${model} (${selectedModel} was overloaded)`);
-                }
-                return text;
-            }
-
-            if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
-            if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
-            if (res.status === 429) throw new Error('Daily free limit reached. Try again tomorrow, or switch to a different model in Settings.');
-
-            try { const e = await res.json(); lastErr = e?.error?.message || `HTTP ${res.status}`; } catch { lastErr = `HTTP ${res.status}`; }
-
-            if (res.status === 503 || res.status === 529) {
-                setText('loading-sub', attempt === 0 ? `${model} is busy, retrying…` : `${model} overloaded, trying next model…`);
-                continue;
-            }
-
-            if (res.status === 404) {
-                setText('loading-sub', `${model} unavailable, trying next model…`);
-                break;
-            }
-
-            throw new Error(`Gemini error: ${lastErr}`);
-        }
+    let res;
+    try {
+        res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    } catch (netErr) {
+        throw new Error('Network error — check your internet connection and try again.');
     }
 
-    throw new Error('All models are currently overloaded. Please try again in a few minutes.');
+    if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Gemini returned an empty response. Please try again.');
+        return text;
+    }
+
+    let errMsg = `HTTP ${res.status}`;
+    try { const e = await res.json(); errMsg = e?.error?.message || errMsg; } catch {}
+
+    if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
+    if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
+    if (res.status === 429) throw new Error('Rate limit reached. Wait a minute and try again. If this persists, you have hit the daily free limit — try again tomorrow.');
+    if (res.status === 503) throw new Error('Gemini is temporarily overloaded. Please wait 30 seconds and try again.');
+    throw new Error(`Gemini error: ${errMsg}`);
 }
 
 // ── Inputs / Validation ────────────────────────────────────────────────────
