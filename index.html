@@ -125,7 +125,7 @@
                     <strong>How to get a free key:</strong><br/>
                     1. Go to <strong>aistudio.google.com</strong><br/>
                     2. Sign in with Google → <strong>Get API Key</strong> → Create API Key<br/>
-                    3. Free tier: 1,500 requests/day (Gemini 3.5 Flash)
+                    3. Free tier: 1,500 requests/day (Gemini 2.5 Flash)
                 </div>
             </div>
 
@@ -134,9 +134,9 @@
                     <label class="block text-xs font-semibold text-slate-600 mb-1.5">Model</label>
                     <select id="model-select"
                         class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                        <option value="gemini-3.5-flash">Gemini 3.5 Flash — Latest + best quality (free)</option>
-                        <option value="gemini-3.1-flash">Gemini 3.1 Flash — Fast + capable (free)</option>
-                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite — Fastest (free)</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash — Recommended (free)</option>
+                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite — Fastest (free)</option>
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro — Best quality (free, lower limits)</option>
                     </select>
                 </div>
                 <div>
@@ -810,7 +810,7 @@ function loadSettings() {
     document.getElementById('base-resume-input').value = g('baseResume');
     document.getElementById('name-input').value         = g('userName');
     document.getElementById('contact-input').value      = g('userContact');
-    const saved = g('geminiModel') || 'gemini-3.5-flash';
+    const saved = g('geminiModel') || 'gemini-2.5-flash';
     document.getElementById('model-select').value = saved;
     updateApiBadge(!!g('apiKey'));
 }
@@ -857,13 +857,13 @@ function toggleKeyVisibility() {
 }
 
 // ── Gemini API ─────────────────────────────────────────────────────────────
-const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.1-flash', 'gemini-3.1-flash-lite'];
+const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
 
 async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
 
-    const selectedModel = localStorage.getItem('geminiModel') || 'gemini-3.5-flash';
+    const selectedModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
     const modelsToTry = [selectedModel, ...FALLBACK_MODELS.filter(m => m !== selectedModel)];
 
     const body = {
@@ -919,6 +919,11 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
             if (res.status === 503 || res.status === 529) {
                 setText('loading-sub', attempt === 0 ? `${model} is busy, retrying…` : `${model} overloaded, trying next model…`);
                 continue;
+            }
+
+            if (res.status === 404) {
+                setText('loading-sub', `${model} unavailable, trying next model…`);
+                break;
             }
 
             throw new Error(`Gemini error: ${lastErr}`);
