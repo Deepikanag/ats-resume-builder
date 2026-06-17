@@ -857,13 +857,14 @@ function toggleKeyVisibility() {
 }
 
 // ── Gemini API ─────────────────────────────────────────────────────────────
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.1-flash', 'gemini-3.1-flash-lite'];
+
 async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
 
-    const model = localStorage.getItem('geminiModel') || 'gemini-3.5-flash';
-
-    const url = `${GEMINI_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const selectedModel = localStorage.getItem('geminiModel') || 'gemini-3.5-flash';
+    const modelsToTry = [selectedModel, ...FALLBACK_MODELS.filter(m => m !== selectedModel)];
 
     const body = {
         system_instruction: { parts: [{ text: String(systemPrompt) }] },
@@ -881,33 +882,50 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
         ]
     };
 
-    let res;
-    try {
-        res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-    } catch (netErr) {
-        throw new Error('Network error — check your internet connection and try again.');
+    let lastErr = '';
+    for (const model of modelsToTry) {
+        const url = `${GEMINI_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
+
+            let res;
+            try {
+                res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+            } catch (netErr) {
+                throw new Error('Network error — check your internet connection and try again.');
+            }
+
+            if (res.ok) {
+                const data = await res.json();
+                const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error('Gemini returned an empty response. Please try again.');
+                if (model !== selectedModel) {
+                    toast(`Used ${model} (${selectedModel} was overloaded)`);
+                }
+                return text;
+            }
+
+            if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
+            if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
+            if (res.status === 429) throw new Error('Daily free limit reached. Try again tomorrow, or switch to a different model in Settings.');
+
+            try { const e = await res.json(); lastErr = e?.error?.message || `HTTP ${res.status}`; } catch { lastErr = `HTTP ${res.status}`; }
+
+            if (res.status === 503 || res.status === 529) {
+                setText('loading-sub', attempt === 0 ? `${model} is busy, retrying…` : `${model} overloaded, trying next model…`);
+                continue;
+            }
+
+            throw new Error(`Gemini error: ${lastErr}`);
+        }
     }
 
-    if (!res.ok) {
-        let errMsg = `HTTP ${res.status}`;
-        try {
-            const errBody = await res.json();
-            errMsg = errBody?.error?.message || errMsg;
-        } catch {}
-        if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
-        if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
-        if (res.status === 429) throw new Error('Daily free limit reached. Try again tomorrow, or switch to a different model in Settings.');
-        throw new Error(`Gemini error: ${errMsg}`);
-    }
-
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error('Gemini returned an empty response. Please try again.');
-    return text;
+    throw new Error('All models are currently overloaded. Please try again in a few minutes.');
 }
 
 // ── Inputs / Validation ────────────────────────────────────────────────────
