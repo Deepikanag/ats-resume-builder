@@ -446,12 +446,12 @@ const STOP_WORDS = new Set(
 );
 
 const SECTION_PATTERNS = {
-    summary:    /(?:^|\n)#{1,3}\s*(?:summary|professional\s*summary|profile|objective|about\s*me)/i,
-    experience: /(?:^|\n)#{1,3}\s*(?:experience|work\s*experience|employment|professional\s*experience|work\s*history)/i,
-    education:  /(?:^|\n)#{1,3}\s*(?:education|academic|qualifications|degrees)/i,
-    skills:     /(?:^|\n)#{1,3}\s*(?:skills|technical\s*skills|core\s*skills|competencies|technologies|tech\s*stack)/i,
-    projects:   /(?:^|\n)#{1,3}\s*(?:projects|personal\s*projects|portfolio)/i,
-    certifications: /(?:^|\n)#{1,3}\s*(?:certifications?|licenses?|credentials)/i
+    summary:    /(?:^|\n)\s*(?:#{1,3}\s*)?(?:\*{2})?(?:summary|professional\s*summary|profile|objective|about\s*me)(?:\*{2})?[\s:]*(?:\n|$)/im,
+    experience: /(?:^|\n)\s*(?:#{1,3}\s*)?(?:\*{2})?(?:experience|work\s*experience|employment|professional\s*experience|work\s*history)(?:\*{2})?[\s:]*(?:\n|$)/im,
+    education:  /(?:^|\n)\s*(?:#{1,3}\s*)?(?:\*{2})?(?:education|academic|qualifications|degrees)(?:\*{2})?[\s:]*(?:\n|$)/im,
+    skills:     /(?:^|\n)\s*(?:#{1,3}\s*)?(?:\*{2})?(?:skills|technical\s*skills|core\s*skills|competencies|technologies|tech\s*stack)(?:\*{2})?[\s:]*(?:\n|$)/im,
+    projects:   /(?:^|\n)\s*(?:#{1,3}\s*)?(?:\*{2})?(?:projects|personal\s*projects|portfolio)(?:\*{2})?[\s:]*(?:\n|$)/im,
+    certifications: /(?:^|\n)\s*(?:#{1,3}\s*)?(?:\*{2})?(?:certifications?|licenses?|credentials)(?:\*{2})?[\s:]*(?:\n|$)/im
 };
 
 function atsNormalize(text) {
@@ -954,28 +954,66 @@ function showState(state, msg = '', sub = '') {
 }
 
 // ── Prompts ────────────────────────────────────────────────────────────────
-const RESUME_SYSTEM = `You are an elite resume writer and ATS (Applicant Tracking System) specialist.
+const RESUME_SYSTEM = `You are four expert personas collaborating to produce one ATS-optimised resume. Work through each stage internally, then return only the final output.
 
-TASK: Rewrite the candidate's resume for the given job description so it passes ATS and impresses a human recruiter.
+── STAGE 1: THE DIAGNOSER ──
+Analyse the base resume against the job description. Identify:
+- Which required keywords, skills, and qualifications are missing
+- Which bullet points are weak (duties instead of accomplishments)
+- Structural issues (missing sections, poor ordering, no summary)
+- Where the candidate's real experience can support missing keywords
 
-You will receive a KEYWORD GAP ANALYSIS from an ATS scanner showing exactly which keywords from the job description are missing from the resume. Prioritize incorporating these missing keywords naturally into bullet points, the summary, and the skills section — but ONLY where the candidate's real experience supports them.
+── STAGE 2: THE RECRUITER ──
+Evaluate from a 6-second recruiter scan perspective:
+- Is the most relevant experience immediately visible?
+- Does the summary hook match the exact role?
+- Are accomplishments quantified and scannable?
+- Would this pass the "so what?" test for every bullet?
 
-STRICT RULES:
-1. NEVER invent skills, tools, companies, or experience not in the base resume. Every claim must be traceable to the original.
-2. USE exact keywords and phrases from the job description, woven naturally into bullet points.
-3. INCLUDE both acronym and full form on first use: e.g. "Continuous Integration (CI)".
-4. REORDER bullets to lead with the most relevant points first.
-5. REORDER sections if needed (most relevant experience first).
-6. QUANTIFY achievements — if a result is mentioned, express it as a metric.
-7. WRITE a 2–3 sentence professional summary tailored to this exact role and company.
-8. OUTPUT clean Markdown: ## for section headers, ### for job/degree titles, - for bullets. No tables. No columns.
+── STAGE 3: THE REWRITER ──
+Rewrite the resume following these strict rules:
+
+HARVARD CAREER SERVICES FORMAT:
+- Name centred at top, contact info on one line below (email | phone | LinkedIn | location)
+- Sections in this order: Summary, Experience, Skills, Education, Projects, Certifications (skip empty sections)
+- Each job entry: Company — Role (Start–End) on one line
+- Bullets under each role: 3-6 per role, most relevant first
+- Education: Degree, Institution, Year — one line each
+- Skills: grouped by category on one line (e.g. "Languages: Python, Java, Go")
+- Keep to a concise, one-page-equivalent length
+
+GOOGLE X-Y-Z BULLET FORMAT:
+Every work experience bullet MUST follow: "Accomplished [X] as measured by [Y], by doing [Z]"
+- X = the positive result (start with a strong action verb in past tense)
+- Y = the metric (number, percentage, dollar amount, time saved, scale)
+- Z = the method (specific actions, tools, or skills used)
+If the base resume lacks a metric, infer a reasonable scope indicator (e.g. "across 3 teams", "for 10K+ users", "within 2-week sprint") from context — but NEVER fabricate specific numbers.
+
+KEYWORD OPTIMISATION:
+- Weave missing JD keywords naturally into bullets, summary, and skills — ONLY where real experience supports them
+- Use exact JD phrases; include acronym + full form on first use: e.g. "Continuous Integration/Continuous Deployment (CI/CD)"
+- Front-load the most relevant keywords into Summary and Skills sections for ATS placement scoring
+
+STRICT INTEGRITY RULES:
+- NEVER invent skills, tools, companies, roles, or experience not in the base resume
+- Every claim must be traceable to the original resume
+- Reorder sections and bullets to lead with most relevant content
+
+OUTPUT FORMAT:
+Clean Markdown only: ## for section headers, ### for job/degree titles, - for bullets. No tables. No columns. No bold/italic except name.
+
+── STAGE 4: THE HIRING MANAGER ──
+Review the rewritten resume as if you are the hiring manager for this specific role:
+- Flag any remaining genuine gaps that rewording cannot fix
+- Identify 2-3 specific, actionable tips to strengthen this application
+- Verify every bullet passes the "would I interview this person?" test
 
 Return ONLY a valid JSON object:
 {
-  "tailored_resume": "full resume in markdown",
+  "tailored_resume": "full resume in markdown using ## headers",
   "keywords_added": ["keywords woven in that were not in the original"],
-  "gaps": ["honest gaps between JD and this resume that cannot be addressed by rewording"],
-  "tips": ["2-3 specific actionable tips for this application"]
+  "gaps": ["honest gaps the hiring manager identified that cannot be addressed by rewording"],
+  "tips": ["2-3 specific actionable tips from the hiring manager review"]
 }`;
 
 const QUESTIONS_SYSTEM = `You are a senior interview coach. Generate a comprehensive interview preparation pack specific to this exact role and company — never generic.
@@ -1014,6 +1052,8 @@ Missing hard skills/tools to incorporate (if supported by experience): ${missing
 Missing soft skills to weave in: ${missingSoft.join(', ') || 'None'}
 Missing certifications/education keywords: ${missingCerts.join(', ') || 'None'}
 Missing resume sections: ${gapAnalysis ? gapAnalysis.breakdown.sections.missing.join(', ') || 'None' : 'N/A'}
+
+REMINDER: Use ## for ALL section headers (## Summary, ## Experience, ## Skills, ## Education, etc.) — this is critical for ATS parsing. Every work bullet must follow Google X-Y-Z format: "Accomplished [X] as measured by [Y], by doing [Z]."
 
 --- BASE RESUME ---
 ${i.base}
