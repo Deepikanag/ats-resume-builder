@@ -59,6 +59,9 @@
         ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
         .history-card:hover { border-color:#a5b4fc; box-shadow:0 0 0 3px #eef2ff; }
         .key-hidden { letter-spacing:.25em; }
+        .score-circle { width:80px; height:80px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; border:4px solid; }
+        .progress-bar { height:8px; border-radius:4px; background:#e2e8f0; overflow:hidden; }
+        .progress-fill { height:100%; border-radius:4px; transition:width .5s ease; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen text-sm"
@@ -122,7 +125,7 @@
                     <strong>How to get a free key:</strong><br/>
                     1. Go to <strong>aistudio.google.com</strong><br/>
                     2. Sign in with Google → <strong>Get API Key</strong> → Create API Key<br/>
-                    3. Free tier: 50 requests/day (Gemini 1.5 Pro)
+                    3. Free tier: 1,500 requests/day (Gemini 3.5 Flash)
                 </div>
             </div>
 
@@ -131,9 +134,9 @@
                     <label class="block text-xs font-semibold text-slate-600 mb-1.5">Model</label>
                     <select id="model-select"
                         class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                        <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro — Best quality (50 req/day free)</option>
-                        <option value="gemini-2.0-flash">Gemini 2.0 Flash — Fast + very capable (generous free)</option>
-                        <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash — Fastest (1500 req/day free)</option>
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash — Latest + best quality (free)</option>
+                        <option value="gemini-3.1-flash">Gemini 3.1 Flash — Fast + capable (free)</option>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite — Fastest (free)</option>
                     </select>
                 </div>
                 <div>
@@ -208,6 +211,15 @@
                             class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
                         <p id="jd-char-count" class="text-xs text-slate-300 mt-1 text-right">0 / 15000 chars</p>
                     </div>
+                    <!-- Pre-score bar -->
+                    <div id="pre-score-bar" style="display:none;" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50">
+                        <span class="text-xs text-slate-500 whitespace-nowrap">Base resume match:</span>
+                        <div class="flex-1">
+                            <div class="progress-bar"><div id="pre-score-fill" class="progress-fill" style="width:0%;"></div></div>
+                        </div>
+                        <span id="pre-score-value" class="text-sm font-bold min-w-[3rem] text-right"></span>
+                        <span id="pre-score-label" class="text-xs"></span>
+                    </div>
                 </div>
             </div>
 
@@ -254,8 +266,9 @@
                         Tailored Resume
                     </button>
                     <button onclick="switchTab('keywords')" id="tab-keywords"
-                        class="px-4 py-3 text-xs font-semibold text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors">
+                        class="px-4 py-3 text-xs font-semibold text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors flex items-center gap-1.5">
                         ATS Score
+                        <span id="tab-score-badge" style="display:none;" class="text-xs font-bold px-1.5 py-0.5 rounded-full"></span>
                     </button>
                     <button onclick="switchTab('questions')" id="tab-questions"
                         class="px-4 py-3 text-xs font-semibold text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors">
@@ -310,23 +323,405 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MAX_RESUME  = 20000;
 const MAX_JD      = 15000;
 
+// ── ATS Scoring Engine ────────────────────────────────────────────────────
+// Local keyword-matching scorer modelled on how real ATS systems
+// (Workday, Taleo, Greenhouse) parse and rank resumes.
+
+const HARD_SKILLS = new Set(
+    ('python|java|javascript|typescript|c++|c#|go|golang|rust|ruby|php|swift|kotlin|scala|r|matlab|sql|html|css|sass|less|bash|shell|perl|lua|dart|elixir|haskell|clojure|groovy|objective-c|' +
+    'react|angular|vue|svelte|django|flask|spring|spring boot|node.js|express|next.js|nuxt|fastapi|.net|asp.net|rails|ruby on rails|laravel|symfony|flutter|react native|electron|' +
+    'tensorflow|pytorch|scikit-learn|pandas|numpy|scipy|keras|opencv|hugging face|langchain|' +
+    'aws|amazon web services|azure|microsoft azure|gcp|google cloud|google cloud platform|docker|kubernetes|terraform|ansible|puppet|chef|jenkins|circleci|github actions|gitlab ci|travis ci|' +
+    'nginx|apache|linux|unix|windows server|' +
+    'postgresql|mysql|mongodb|redis|elasticsearch|dynamodb|cassandra|sqlite|oracle|sql server|microsoft sql server|snowflake|bigquery|redshift|firebase|supabase|neo4j|couchdb|' +
+    'git|github|gitlab|bitbucket|jira|confluence|figma|sketch|postman|swagger|openapi|grafana|prometheus|datadog|splunk|new relic|kibana|tableau|power bi|looker|' +
+    'rest api|restful|graphql|grpc|websocket|soap|microservices|monolith|serverless|lambda|' +
+    'ci/cd|continuous integration|continuous deployment|continuous delivery|agile|scrum|kanban|devops|devsecops|sre|site reliability|' +
+    'machine learning|deep learning|nlp|natural language processing|computer vision|data engineering|data science|data analytics|etl|data pipeline|data warehouse|data lake|' +
+    'oauth|jwt|saml|sso|single sign-on|' +
+    'tdd|test driven development|bdd|unit testing|integration testing|e2e testing|selenium|cypress|jest|mocha|pytest|junit|' +
+    'hadoop|spark|kafka|rabbitmq|celery|airflow|' +
+    'blockchain|web3|solidity|smart contracts|' +
+    'figma|adobe xd|photoshop|illustrator|' +
+    'responsive design|accessibility|wcag|seo|' +
+    'api design|system design|distributed systems|event driven|cqrs|domain driven design').split('|')
+);
+
+const SOFT_SKILLS = new Set(
+    ('leadership|communication|collaboration|teamwork|team work|problem solving|problem-solving|analytical|critical thinking|' +
+    'time management|project management|stakeholder management|mentoring|coaching|cross-functional|cross functional|' +
+    'strategic thinking|strategic|creative|creativity|adaptable|adaptability|self-motivated|detail-oriented|detail oriented|' +
+    'results-driven|results driven|customer-focused|customer focused|presentation|public speaking|negotiation|conflict resolution|' +
+    'decision-making|decision making|initiative|accountability|empathy|interpersonal|organizational|multitasking|prioritization|' +
+    'written communication|verbal communication|emotional intelligence|relationship building|influence|persuasion').split('|')
+);
+
+const CERTIFICATIONS = new Set(
+    ('aws certified|aws solutions architect|aws developer|aws sysops|aws devops|' +
+    'azure certified|azure fundamentals|azure administrator|azure developer|azure solutions architect|' +
+    'gcp certified|google cloud certified|' +
+    'pmp|project management professional|prince2|' +
+    'scrum master|csm|certified scrum master|psm|safe|safe agilist|' +
+    'cissp|cism|cisa|ceh|certified ethical hacker|comptia|comptia security+|comptia network+|comptia a+|' +
+    'ccna|ccnp|ccie|' +
+    'itil|togaf|cobit|' +
+    'six sigma|lean six sigma|green belt|black belt|' +
+    'cpa|cfa|cma|' +
+    'google analytics|hubspot|salesforce certified|salesforce administrator|' +
+    'tableau certified|databricks certified|snowflake certified|' +
+    'kubernetes certified|cka|ckad|' +
+    'terraform certified|hashicorp certified').split('|')
+);
+
+const EDUCATION_KEYWORDS = new Set(
+    ('bachelor|bachelors|master|masters|phd|doctorate|doctoral|mba|bsc|msc|ba|ma|bs|ms|' +
+    'computer science|computer engineering|software engineering|information technology|information systems|' +
+    'electrical engineering|mechanical engineering|mathematics|statistics|physics|chemistry|biology|' +
+    'data science|artificial intelligence|cybersecurity|business administration|economics|finance|' +
+    'degree|diploma|certification|certificate|bootcamp|nanodegree').split('|')
+);
+
+const ALIAS_MAP = {
+    'js':'javascript','javascript':'js',
+    'ts':'typescript','typescript':'ts',
+    'py':'python','python':'py',
+    'react.js':'react','reactjs':'react',
+    'vue.js':'vue','vuejs':'vue',
+    'node':'node.js','nodejs':'node.js','node.js':'nodejs',
+    'next':'next.js','nextjs':'next.js',
+    'nuxt':'nuxt','nuxtjs':'nuxt',
+    'express.js':'express','expressjs':'express',
+    'k8s':'kubernetes','kube':'kubernetes',
+    'postgres':'postgresql','pg':'postgresql',
+    'mongo':'mongodb',
+    'elastic':'elasticsearch',
+    'ml':'machine learning','machine learning':'ml',
+    'dl':'deep learning','deep learning':'dl',
+    'ai':'artificial intelligence','artificial intelligence':'ai',
+    'nlp':'natural language processing','natural language processing':'nlp',
+    'cv':'computer vision','computer vision':'cv',
+    'ci/cd':'continuous integration','ci':'continuous integration','cd':'continuous deployment',
+    'aws':'amazon web services','amazon web services':'aws',
+    'gcp':'google cloud platform','google cloud platform':'gcp','google cloud':'gcp',
+    'azure':'microsoft azure','microsoft azure':'azure',
+    'tf':'terraform',
+    'dotnet':'.net','.net':'dotnet',
+    'c sharp':'c#','csharp':'c#',
+    'cpp':'c++','cplusplus':'c++',
+    'golang':'go',
+    'oop':'object oriented programming',
+    'rest':'rest api','restful':'rest api','rest api':'restful',
+    'mssql':'sql server','sql server':'mssql',
+    'dba':'database administration',
+    'pm':'project management',
+    'qa':'quality assurance','quality assurance':'qa',
+    'sre':'site reliability engineering','site reliability':'sre',
+    'k8':'kubernetes',
+    'gh actions':'github actions',
+    'rb':'ruby',
+    'spring boot':'spring','springboot':'spring boot'
+};
+
+const STOP_WORDS = new Set(
+    ('a|an|the|and|or|but|in|on|at|to|for|of|with|by|from|as|is|was|are|were|be|been|being|' +
+    'have|has|had|do|does|did|will|would|could|should|may|might|shall|can|need|must|' +
+    'that|which|who|whom|this|these|those|it|its|i|me|my|we|our|you|your|he|she|they|them|their|' +
+    'what|where|when|how|why|if|then|than|so|no|not|only|very|just|also|about|up|out|' +
+    'all|each|every|both|few|more|most|other|some|such|any|' +
+    'work|working|worked|join|joining|team|teams|company|role|position|opportunity|' +
+    'responsibilities|responsibility|requirements|required|require|requires|' +
+    'preferred|prefer|qualifications|qualification|experience|experienced|' +
+    'ability|able|including|include|includes|etc|e.g|i.e|' +
+    'strong|excellent|proven|demonstrated|deep|solid|good|great|' +
+    'minimum|least|plus|bonus|nice|ideal|ideally|' +
+    'looking|seek|seeking|' +
+    'new|well|across|within|using|use|used|help|' +
+    'ensure|support|develop|developing|development|create|creating|' +
+    'build|building|manage|managing|maintain|maintaining|implement|implementing|' +
+    'provide|providing|understand|understanding|knowledge|' +
+    'year|years|months|day|days|time|' +
+    'apply|application|applicant|candidate|' +
+    'equal|employer|employment|salary|benefits|compensation|' +
+    'full|part|remote|hybrid|onsite|office|location').split('|')
+);
+
+const SECTION_PATTERNS = {
+    summary:    /(?:^|\n)#{1,3}\s*(?:summary|professional\s*summary|profile|objective|about\s*me)/i,
+    experience: /(?:^|\n)#{1,3}\s*(?:experience|work\s*experience|employment|professional\s*experience|work\s*history)/i,
+    education:  /(?:^|\n)#{1,3}\s*(?:education|academic|qualifications|degrees)/i,
+    skills:     /(?:^|\n)#{1,3}\s*(?:skills|technical\s*skills|core\s*skills|competencies|technologies|tech\s*stack)/i,
+    projects:   /(?:^|\n)#{1,3}\s*(?:projects|personal\s*projects|portfolio)/i,
+    certifications: /(?:^|\n)#{1,3}\s*(?:certifications?|licenses?|credentials)/i
+};
+
+function atsNormalize(text) {
+    return String(text || '').toLowerCase()
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/[^a-z0-9\s\-\+\#\.\/]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function atsTokenize(text) {
+    return atsNormalize(text).split(' ').filter(t => t.length > 1);
+}
+
+function atsExtractNgrams(tokens, n) {
+    const grams = [];
+    for (let i = 0; i <= tokens.length - n; i++) {
+        grams.push(tokens.slice(i, i + n).join(' '));
+    }
+    return grams;
+}
+
+function atsCategorize(keyword) {
+    const kw = keyword.toLowerCase();
+    if (HARD_SKILLS.has(kw)) return 'hard_skill';
+    if (SOFT_SKILLS.has(kw)) return 'soft_skill';
+    if (CERTIFICATIONS.has(kw)) return 'certification';
+    if (EDUCATION_KEYWORDS.has(kw)) return 'education';
+    for (const cert of CERTIFICATIONS) { if (kw.includes(cert) || cert.includes(kw)) return 'certification'; }
+    return 'unknown';
+}
+
+function atsIsRequired(keyword, jdNormalized) {
+    const idx = jdNormalized.indexOf(keyword);
+    if (idx === -1) return true;
+    const surrounding = jdNormalized.slice(Math.max(0, idx - 120), idx + keyword.length + 80);
+    if (/\b(?:preferred|nice\s*to\s*have|bonus|ideally|optional|desirable|advantageous|a\s*plus)\b/.test(surrounding)) return false;
+    return true;
+}
+
+function atsExtractKeywords(jdText, jobTitle) {
+    const normalized = atsNormalize(jdText);
+    const tokens = atsTokenize(jdText);
+    const filtered = tokens.filter(t => !STOP_WORDS.has(t));
+
+    const candidates = new Map();
+
+    [1, 2, 3].forEach(n => {
+        const source = n === 1 ? filtered : tokens;
+        atsExtractNgrams(source, n).forEach(gram => {
+            const cat = atsCategorize(gram);
+            if (cat !== 'unknown' || (n >= 2 && HARD_SKILLS.has(gram))) {
+                if (!candidates.has(gram)) {
+                    candidates.set(gram, {
+                        keyword: gram,
+                        category: cat !== 'unknown' ? cat : 'hard_skill',
+                        isRequired: atsIsRequired(gram, normalized),
+                        count: 0
+                    });
+                }
+                candidates.get(gram).count++;
+            }
+        });
+    });
+
+    const aliasesFound = new Set();
+    candidates.forEach((v, k) => {
+        const alias = ALIAS_MAP[k];
+        if (alias && candidates.has(alias)) aliasesFound.add(k.length < alias.length ? k : alias);
+    });
+    aliasesFound.forEach(a => candidates.delete(a));
+
+    if (jobTitle) {
+        const titleTokens = atsTokenize(jobTitle).filter(t => !STOP_WORDS.has(t));
+        titleTokens.forEach(t => {
+            if (!candidates.has(t)) {
+                const cat = atsCategorize(t);
+                if (cat !== 'unknown') {
+                    candidates.set(t, { keyword: t, category: cat, isRequired: true, count: 1 });
+                }
+            }
+        });
+    }
+
+    return Array.from(candidates.values());
+}
+
+function atsMatchKeyword(keyword, resumeNormalized) {
+    if (resumeNormalized.includes(keyword)) return { found: true, matchType: 'exact' };
+
+    const alias = ALIAS_MAP[keyword];
+    if (alias && resumeNormalized.includes(alias)) return { found: true, matchType: 'alias' };
+
+    if (!keyword.endsWith('s') && resumeNormalized.includes(keyword + 's')) return { found: true, matchType: 'fuzzy' };
+    if (keyword.endsWith('s') && resumeNormalized.includes(keyword.slice(0, -1))) return { found: true, matchType: 'fuzzy' };
+    if (keyword.endsWith('ies') && resumeNormalized.includes(keyword.slice(0, -3) + 'y')) return { found: true, matchType: 'fuzzy' };
+    if (keyword.endsWith('ing') && resumeNormalized.includes(keyword.slice(0, -3))) return { found: true, matchType: 'fuzzy' };
+    if (keyword.endsWith('ing') && resumeNormalized.includes(keyword.slice(0, -3) + 'e')) return { found: true, matchType: 'fuzzy' };
+
+    return { found: false, matchType: 'none' };
+}
+
+function atsCheckSections(resumeText) {
+    const present = [];
+    const missing = [];
+    const checks = [
+        { name: 'Summary',    pattern: SECTION_PATTERNS.summary },
+        { name: 'Experience', pattern: SECTION_PATTERNS.experience },
+        { name: 'Education',  pattern: SECTION_PATTERNS.education },
+        { name: 'Skills',     pattern: SECTION_PATTERNS.skills }
+    ];
+    checks.forEach(c => {
+        (c.pattern.test(resumeText) ? present : missing).push(c.name);
+    });
+    return { present, missing };
+}
+
+function atsKeywordPlacement(keyword, resumeText) {
+    const lower = resumeText.toLowerCase();
+    const sections = {};
+    let lastIdx = 0;
+    ['skills', 'summary', 'experience', 'education', 'projects', 'certifications'].forEach(s => {
+        const m = SECTION_PATTERNS[s]?.exec(resumeText);
+        if (m) sections[s] = m.index;
+    });
+
+    const idx = lower.indexOf(keyword);
+    if (idx === -1) return 0;
+
+    let inSection = 'other';
+    Object.entries(sections).forEach(([name, pos]) => {
+        if (idx >= pos) inSection = name;
+    });
+
+    if (inSection === 'skills' || inSection === 'summary') return 1.0;
+    if (inSection === 'experience') return 0.75;
+    return 0.5;
+}
+
+function calculateAtsScore(jdText, resumeText, jobTitle) {
+    if (!jdText || !resumeText) return null;
+
+    const jdKeywords = atsExtractKeywords(jdText, jobTitle);
+    const resumeNormalized = atsNormalize(resumeText);
+    const sections = atsCheckSections(resumeText);
+
+    const matched = [];
+    const missing = [];
+
+    jdKeywords.forEach(kw => {
+        const result = atsMatchKeyword(kw.keyword, resumeNormalized);
+        if (result.found) {
+            matched.push({ ...kw, matchType: result.matchType, placement: atsKeywordPlacement(kw.keyword, resumeText) });
+        } else {
+            missing.push(kw);
+        }
+    });
+
+    // Category 1: Job title match (15 pts)
+    let titleScore = 0;
+    if (jobTitle) {
+        const titleTokens = atsTokenize(jobTitle).filter(t => !STOP_WORDS.has(t) && t.length > 2);
+        if (titleTokens.length > 0) {
+            const titleMatched = titleTokens.filter(t => resumeNormalized.includes(t)).length;
+            titleScore = (titleMatched / titleTokens.length) * 15;
+            if (resumeNormalized.includes(atsNormalize(jobTitle))) titleScore = 15;
+        } else {
+            titleScore = 15;
+        }
+    } else {
+        titleScore = 15;
+    }
+
+    // Category 2: Hard skills (40 pts)
+    const hardSkills = jdKeywords.filter(k => k.category === 'hard_skill');
+    const requiredHard = hardSkills.filter(k => k.isRequired);
+    const preferredHard = hardSkills.filter(k => !k.isRequired);
+    let hardScore = 0;
+    if (hardSkills.length > 0) {
+        if (requiredHard.length > 0 && preferredHard.length > 0) {
+            const reqMatched = requiredHard.filter(k => matched.some(m => m.keyword === k.keyword)).length;
+            const prefMatched = preferredHard.filter(k => matched.some(m => m.keyword === k.keyword)).length;
+            hardScore = (reqMatched / requiredHard.length) * 28 + (prefMatched / preferredHard.length) * 12;
+        } else {
+            const hardMatched = hardSkills.filter(k => matched.some(m => m.keyword === k.keyword)).length;
+            hardScore = (hardMatched / hardSkills.length) * 40;
+        }
+    } else {
+        hardScore = 40;
+    }
+
+    // Category 3: Soft skills (10 pts)
+    const softSkills = jdKeywords.filter(k => k.category === 'soft_skill');
+    let softScore = 0;
+    if (softSkills.length > 0) {
+        const softMatched = softSkills.filter(k => matched.some(m => m.keyword === k.keyword)).length;
+        softScore = (softMatched / softSkills.length) * 10;
+    } else {
+        softScore = 10;
+    }
+
+    // Category 4: Section presence (15 pts)
+    const sectionWeights = { Summary: 4, Experience: 4, Education: 3, Skills: 4 };
+    let sectionScore = 0;
+    sections.present.forEach(s => { sectionScore += sectionWeights[s] || 0; });
+
+    // Category 5: Keyword placement quality (10 pts)
+    let placementScore = 0;
+    const placedKeywords = matched.filter(m => m.category === 'hard_skill');
+    if (placedKeywords.length > 0) {
+        const avgPlacement = placedKeywords.reduce((sum, k) => sum + k.placement, 0) / placedKeywords.length;
+        placementScore = avgPlacement * 10;
+    } else if (hardSkills.length === 0) {
+        placementScore = 10;
+    }
+
+    // Category 6: Certifications & education (10 pts)
+    const certKeywords = jdKeywords.filter(k => k.category === 'certification');
+    const eduKeywords = jdKeywords.filter(k => k.category === 'education');
+    let certScore = certKeywords.length > 0
+        ? (certKeywords.filter(k => matched.some(m => m.keyword === k.keyword)).length / certKeywords.length) * 5
+        : 5;
+    let eduScore = eduKeywords.length > 0
+        ? (eduKeywords.filter(k => matched.some(m => m.keyword === k.keyword)).length / eduKeywords.length) * 5
+        : 5;
+
+    const totalScore = Math.round(Math.min(100, Math.max(0,
+        titleScore + hardScore + softScore + sectionScore + placementScore + certScore + eduScore
+    )));
+
+    return {
+        score: totalScore,
+        breakdown: {
+            jobTitle:       { score: Math.round(titleScore),     max: 15, matches: [], missing: [] },
+            hardSkills:     { score: Math.round(hardScore),      max: 40,
+                matches: matched.filter(m => m.category === 'hard_skill').map(m => m.keyword),
+                missing: missing.filter(m => m.category === 'hard_skill').map(m => m.keyword) },
+            softSkills:     { score: Math.round(softScore),      max: 10,
+                matches: matched.filter(m => m.category === 'soft_skill').map(m => m.keyword),
+                missing: missing.filter(m => m.category === 'soft_skill').map(m => m.keyword) },
+            sections:       { score: Math.round(sectionScore),   max: 15, present: sections.present, missing: sections.missing },
+            placement:      { score: Math.round(placementScore), max: 10 },
+            certEducation:  { score: Math.round(certScore + eduScore), max: 10,
+                matches: matched.filter(m => m.category === 'certification' || m.category === 'education').map(m => m.keyword),
+                missing: missing.filter(m => m.category === 'certification' || m.category === 'education').map(m => m.keyword) }
+        },
+        allJdKeywords: jdKeywords,
+        matchedKeywords: matched,
+        missingKeywords: missing,
+        matchRate: jdKeywords.length > 0 ? Math.round((matched.length / jdKeywords.length) * 100) : 100
+    };
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 let currentResume     = '';
 let currentResumeHtml = '';
 let currentKeyData    = null;
-let isBusy            = false;   // prevents concurrent API calls
+let isBusy            = false;
+let preScore          = null;
+let postScore         = null;
 
 // ── Sanitisation helper ────────────────────────────────────────────────────
-// All AI-generated HTML passes through DOMPurify before touching the DOM.
 function safeHtml(markdown) {
     const raw = marked.parse(String(markdown || ''));
     return DOMPurify.sanitize(raw, {
         ALLOWED_TAGS: ['h1','h2','h3','h4','p','ul','ol','li','strong','em','br','hr','span','div'],
-        ALLOWED_ATTR: []   // no attributes — removes onclick, href, style, etc.
+        ALLOWED_ATTR: []
     });
 }
 
-// Safe text setter — never uses innerHTML for user/AI text unless sanitised
 function setText(id, text) {
     const el = document.getElementById(id);
     if (el) el.textContent = String(text ?? '');
@@ -342,6 +737,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     renderHistory();
     setupCharCounters();
+    setupPreScore();
     if (localStorage.getItem('apiKey')) {
         document.getElementById('setup-panel').style.display = 'none';
     }
@@ -363,6 +759,50 @@ function setupCharCounters() {
     });
 }
 
+function setupPreScore() {
+    let debounceTimer = null;
+    const jdInput = document.getElementById('jd-input');
+    const jobTitleInput = document.getElementById('jobtitle-input');
+
+    const runPreScore = () => {
+        const jd = jdInput.value.trim();
+        const base = localStorage.getItem('baseResume') || '';
+        const jobTitle = jobTitleInput.value.trim();
+        const bar = document.getElementById('pre-score-bar');
+
+        if (jd.length < 100 || base.length < 50) {
+            bar.style.display = 'none';
+            return;
+        }
+
+        const result = calculateAtsScore(jd, base, jobTitle);
+        if (!result) { bar.style.display = 'none'; return; }
+
+        preScore = result;
+        bar.style.display = 'flex';
+
+        const s = result.score;
+        const col = s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444';
+        const label = s >= 75 ? 'Strong match' : s >= 60 ? 'Good match' : s >= 40 ? 'Moderate' : 'Weak match';
+
+        document.getElementById('pre-score-fill').style.width = s + '%';
+        document.getElementById('pre-score-fill').style.background = col;
+        document.getElementById('pre-score-value').textContent = s + '/100';
+        document.getElementById('pre-score-value').style.color = col;
+        document.getElementById('pre-score-label').textContent = label;
+        document.getElementById('pre-score-label').style.color = col;
+    };
+
+    jdInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(runPreScore, 500);
+    });
+    jobTitleInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(runPreScore, 500);
+    });
+}
+
 // ── Settings ───────────────────────────────────────────────────────────────
 function loadSettings() {
     const g = k => localStorage.getItem(k) || '';
@@ -370,7 +810,7 @@ function loadSettings() {
     document.getElementById('base-resume-input').value = g('baseResume');
     document.getElementById('name-input').value         = g('userName');
     document.getElementById('contact-input').value      = g('userContact');
-    const saved = g('geminiModel') || 'gemini-1.5-pro-latest';
+    const saved = g('geminiModel') || 'gemini-3.5-flash';
     document.getElementById('model-select').value = saved;
     updateApiBadge(!!g('apiKey'));
 }
@@ -421,9 +861,8 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
 
-    const model = localStorage.getItem('geminiModel') || 'gemini-1.5-pro-latest';
+    const model = localStorage.getItem('geminiModel') || 'gemini-3.5-flash';
 
-    // Key goes in the URL query param (standard Gemini auth — not in a header that could be logged)
     const url = `${GEMINI_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     const body = {
@@ -432,7 +871,7 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
         generationConfig: {
             temperature: 0.3,
             maxOutputTokens: maxTokens,
-            responseMimeType: 'application/json'   // forces JSON — prevents prompt injection via format tricks
+            responseMimeType: 'application/json'
         },
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
@@ -461,7 +900,7 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
         } catch {}
         if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
         if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
-        if (res.status === 429) throw new Error('Daily free limit reached. Try again tomorrow, or switch to Gemini 2.0 Flash in Settings (more generous limits).');
+        if (res.status === 429) throw new Error('Daily free limit reached. Try again tomorrow, or switch to a different model in Settings.');
         throw new Error(`Gemini error: ${errMsg}`);
     }
 
@@ -473,7 +912,6 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
 
 // ── Inputs / Validation ────────────────────────────────────────────────────
 function getInputs() {
-    // Sanitise text inputs — strip HTML tags from user-typed fields
     const sanitiseText = v => DOMPurify.sanitize(String(v || '').trim(), { ALLOWED_TAGS: [] });
     return {
         company:  sanitiseText(document.getElementById('company-input').value).slice(0, 100),
@@ -511,6 +949,8 @@ const RESUME_SYSTEM = `You are an elite resume writer and ATS (Applicant Trackin
 
 TASK: Rewrite the candidate's resume for the given job description so it passes ATS and impresses a human recruiter.
 
+You will receive a KEYWORD GAP ANALYSIS from an ATS scanner showing exactly which keywords from the job description are missing from the resume. Prioritize incorporating these missing keywords naturally into bullet points, the summary, and the skills section — but ONLY where the candidate's real experience supports them.
+
 STRICT RULES:
 1. NEVER invent skills, tools, companies, or experience not in the base resume. Every claim must be traceable to the original.
 2. USE exact keywords and phrases from the job description, woven naturally into bullet points.
@@ -525,11 +965,7 @@ Return ONLY a valid JSON object:
 {
   "tailored_resume": "full resume in markdown",
   "keywords_added": ["keywords woven in that were not in the original"],
-  "keywords_present": ["key skills already in original that match the JD"],
-  "keywords_missing": ["important JD requirements genuinely absent from the resume"],
-  "ats_score": 8,
-  "score_explanation": "one concise sentence",
-  "gaps": ["honest gaps between JD and this resume"],
+  "gaps": ["honest gaps between JD and this resume that cannot be addressed by rewording"],
   "tips": ["2-3 specific actionable tips for this application"]
 }`;
 
@@ -546,7 +982,37 @@ Return ONLY a valid JSON object:
 Generate exactly: 5 behavioral, 5 technical, 3 company-specific, 4 to ask.`;
 
 function buildResumePrompt(i) {
-    return `Name: ${i.name || 'Not provided'}\nContact: ${i.contact || 'Not provided'}\nCompany: ${i.company || 'Not specified'}\nRole: ${i.jobTitle || 'Not specified'}\n\n--- BASE RESUME ---\n${i.base}\n\n--- JOB DESCRIPTION ---\n${i.jd}\n\nReturn only valid JSON.`;
+    const gapAnalysis = calculateAtsScore(i.jd, i.base, i.jobTitle);
+    const missingHard = gapAnalysis ? gapAnalysis.missingKeywords
+        .filter(k => k.category === 'hard_skill')
+        .map(k => k.keyword) : [];
+    const missingSoft = gapAnalysis ? gapAnalysis.missingKeywords
+        .filter(k => k.category === 'soft_skill')
+        .map(k => k.keyword) : [];
+    const missingCerts = gapAnalysis ? gapAnalysis.missingKeywords
+        .filter(k => k.category === 'certification' || k.category === 'education')
+        .map(k => k.keyword) : [];
+    const currentScore = gapAnalysis ? gapAnalysis.score : 'N/A';
+
+    return `Name: ${i.name || 'Not provided'}
+Contact: ${i.contact || 'Not provided'}
+Company: ${i.company || 'Not specified'}
+Role: ${i.jobTitle || 'Not specified'}
+
+--- KEYWORD GAP ANALYSIS (from ATS scanner) ---
+Current ATS match score: ${currentScore}/100
+Missing hard skills/tools to incorporate (if supported by experience): ${missingHard.join(', ') || 'None'}
+Missing soft skills to weave in: ${missingSoft.join(', ') || 'None'}
+Missing certifications/education keywords: ${missingCerts.join(', ') || 'None'}
+Missing resume sections: ${gapAnalysis ? gapAnalysis.breakdown.sections.missing.join(', ') || 'None' : 'N/A'}
+
+--- BASE RESUME ---
+${i.base}
+
+--- JOB DESCRIPTION ---
+${i.jd}
+
+Return only valid JSON.`;
 }
 
 function buildQuestionsPrompt(i) {
@@ -562,7 +1028,7 @@ async function tailorResume() {
         showState('loading', 'Analysing job requirements and tailoring your resume…', '~20–30 seconds');
         const raw  = await callGemini(RESUME_SYSTEM, buildResumePrompt(inputs));
         const data = parseJsonSafely(raw);
-        applyResumeResult(data);
+        applyResumeResult(data, inputs);
         showState('results');
         switchTab('resume');
         saveHistory(inputs);
@@ -601,7 +1067,7 @@ async function doAll() {
         ]);
         const resumeData    = parseJsonSafely(resumeRaw);
         const questionsData = parseJsonSafely(questionsRaw);
-        applyResumeResult(resumeData);
+        applyResumeResult(resumeData, inputs);
         renderQuestions(questionsData);
         showState('results');
         switchTab('resume');
@@ -614,42 +1080,135 @@ async function doAll() {
 }
 
 // ── Apply results ──────────────────────────────────────────────────────────
-function applyResumeResult(data) {
+function applyResumeResult(data, inputs) {
     currentResume     = String(data.tailored_resume || '');
     currentResumeHtml = safeHtml(currentResume);
     document.getElementById('resume-output').innerHTML = currentResumeHtml;
     currentKeyData = data;
-    renderKeywords(data);
+
+    preScore  = calculateAtsScore(inputs.jd, inputs.base, inputs.jobTitle);
+    postScore = calculateAtsScore(inputs.jd, currentResume, inputs.jobTitle);
+
+    renderAtsScore(preScore, postScore, data);
 }
 
-// ── Render: Keywords ───────────────────────────────────────────────────────
-function renderKeywords(d) {
-    const score = Math.min(10, Math.max(0, parseInt(d.ats_score) || 0));
-    const col = score >= 8 ? '#10b981' : score >= 6 ? '#f59e0b' : '#ef4444';
-    const bg  = score >= 8 ? '#ecfdf5' : score >= 6 ? '#fffbeb' : '#fef2f2';
+// ── Render: ATS Score ─────────────────────────────────────────────────────
+function renderAtsScore(pre, post, geminiData) {
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const scoreColor = s => s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444';
+    const scoreBg    = s => s >= 75 ? '#ecfdf5' : s >= 60 ? '#fffbeb' : s >= 40 ? '#fff7ed' : '#fef2f2';
+    const scoreLabel = s => s >= 75 ? 'Strong' : s >= 60 ? 'Good' : s >= 40 ? 'Moderate' : 'Weak';
 
-    const escText = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const preS  = pre  ? pre.score  : 0;
+    const postS = post ? post.score : 0;
+    const delta = postS - preS;
+    const preCol  = scoreColor(preS);
+    const postCol = scoreColor(postS);
 
-    const tags = (arr, c) => Array.isArray(arr) && arr.length
-        ? arr.map(k => `<span class="inline-block text-xs px-2 py-0.5 rounded-full mb-1 mr-1" style="background:${c}18;color:${c};">${escText(k)}</span>`).join('')
-        : '<span class="text-xs text-slate-300">None</span>';
+    // Tab badge
+    const badge = document.getElementById('tab-score-badge');
+    badge.style.display = 'inline';
+    badge.textContent = postS;
+    badge.style.background = scoreBg(postS);
+    badge.style.color = postCol;
 
-    const listItems = (arr, icon, ic) => Array.isArray(arr) && arr.length
-        ? arr.map(i => `<li class="flex items-start gap-2 text-xs text-slate-600 mb-1"><span style="color:${ic};flex-shrink:0;">${icon}</span>${escText(i)}</li>`).join('')
-        : '';
+    const tags = (arr, color) => {
+        if (!Array.isArray(arr) || !arr.length) return '<span class="text-xs text-slate-300">None</span>';
+        return arr.map(k => `<span class="inline-block text-xs px-2 py-0.5 rounded-full mb-1 mr-1" style="background:${color}18;color:${color};">${esc(k)}</span>`).join('');
+    };
 
-    const html = `
-        <div class="space-y-5">
-            <div class="text-center p-5 rounded-2xl border-2" style="background:${bg};border-color:${col}40;">
-                <div class="text-5xl font-bold mb-1" style="color:${col};">${score}<span class="text-2xl text-slate-400">/10</span></div>
-                <p class="text-xs text-slate-500 mt-1">${escText(d.score_explanation || 'ATS Match Score')}</p>
-            </div>
-            <div><p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Keywords Added / Strengthened</p><div>${tags(d.keywords_added,'#6366f1')}</div></div>
-            <div><p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Already in Your Resume</p><div>${tags(d.keywords_present,'#3b82f6')}</div></div>
-            <div><p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Genuine Gaps (not in your resume)</p><div>${tags(d.keywords_missing,'#ef4444')}</div></div>
-            ${Array.isArray(d.gaps) && d.gaps.length ? `<div><p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Gaps to Be Aware Of</p><ul>${listItems(d.gaps,'▲','#f59e0b')}</ul></div>` : ''}
-            ${Array.isArray(d.tips) && d.tips.length ? `<div><p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Tips for This Application</p><ul>${listItems(d.tips,'→','#6366f1')}</ul></div>` : ''}
+    const breakdownBar = (label, score, max, color) => `
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs text-slate-500 w-28 shrink-0">${esc(label)}</span>
+            <div class="flex-1 progress-bar"><div class="progress-fill" style="width:${max>0?(score/max)*100:0}%;background:${color};"></div></div>
+            <span class="text-xs font-semibold w-12 text-right" style="color:${color};">${score}/${max}</span>
         </div>`;
+
+    const bd = post ? post.breakdown : null;
+
+    const html = `<div class="space-y-5">
+        <!-- Before / After -->
+        <div class="flex items-center justify-center gap-4 p-4">
+            <div class="text-center">
+                <div class="score-circle" style="border-color:${preCol}40;background:${scoreBg(preS)};">
+                    <span class="text-2xl font-bold" style="color:${preCol};">${preS}</span>
+                    <span class="text-xs text-slate-400">/100</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-1.5">Before</p>
+            </div>
+            <div class="flex flex-col items-center">
+                <span class="text-lg text-slate-300">→</span>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full mt-1 ${delta > 0 ? 'bg-emerald-50 text-emerald-600' : delta < 0 ? 'bg-red-50 text-red-500' : 'bg-slate-100 text-slate-500'}">${delta > 0 ? '+' : ''}${delta}</span>
+            </div>
+            <div class="text-center">
+                <div class="score-circle" style="border-color:${postCol};background:${scoreBg(postS)};">
+                    <span class="text-2xl font-bold" style="color:${postCol};">${postS}</span>
+                    <span class="text-xs text-slate-400">/100</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-1.5">After</p>
+            </div>
+        </div>
+
+        <!-- Score Breakdown -->
+        ${bd ? `<div class="p-4 bg-slate-50 rounded-xl border border-slate-100">
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Score Breakdown (After)</p>
+            ${breakdownBar('Job Title', bd.jobTitle.score, bd.jobTitle.max, scoreColor(bd.jobTitle.score / bd.jobTitle.max * 100))}
+            ${breakdownBar('Hard Skills', bd.hardSkills.score, bd.hardSkills.max, scoreColor(bd.hardSkills.score / bd.hardSkills.max * 100))}
+            ${breakdownBar('Soft Skills', bd.softSkills.score, bd.softSkills.max, scoreColor(bd.softSkills.score / bd.softSkills.max * 100))}
+            ${breakdownBar('Sections', bd.sections.score, bd.sections.max, scoreColor(bd.sections.score / bd.sections.max * 100))}
+            ${breakdownBar('Placement', bd.placement.score, bd.placement.max, scoreColor(bd.placement.score / bd.placement.max * 100))}
+            ${breakdownBar('Certs/Edu', bd.certEducation.score, bd.certEducation.max, scoreColor(bd.certEducation.score / bd.certEducation.max * 100))}
+        </div>` : ''}
+
+        <!-- Keywords matched -->
+        ${bd && bd.hardSkills.matches.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Hard Skills Matched</p>
+            <div>${tags(bd.hardSkills.matches, '#10b981')}</div>
+        </div>` : ''}
+
+        ${bd && bd.hardSkills.missing.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Hard Skills Still Missing (Genuine Gaps)</p>
+            <div>${tags(bd.hardSkills.missing, '#ef4444')}</div>
+        </div>` : ''}
+
+        ${bd && bd.softSkills.matches.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Soft Skills Matched</p>
+            <div>${tags(bd.softSkills.matches, '#10b981')}</div>
+        </div>` : ''}
+
+        ${bd && bd.softSkills.missing.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Soft Skills Still Missing</p>
+            <div>${tags(bd.softSkills.missing, '#f59e0b')}</div>
+        </div>` : ''}
+
+        ${bd && bd.certEducation.missing.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Certifications/Education Gaps</p>
+            <div>${tags(bd.certEducation.missing, '#ef4444')}</div>
+        </div>` : ''}
+
+        ${bd && bd.sections.missing.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Missing Resume Sections</p>
+            <div>${tags(bd.sections.missing, '#f97316')}</div>
+        </div>` : ''}
+
+        <!-- Keywords added by AI -->
+        ${Array.isArray(geminiData.keywords_added) && geminiData.keywords_added.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Keywords Added by AI</p>
+            <div>${tags(geminiData.keywords_added, '#6366f1')}</div>
+        </div>` : ''}
+
+        <!-- Gemini qualitative feedback -->
+        ${Array.isArray(geminiData.gaps) && geminiData.gaps.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Gaps to Be Aware Of</p>
+            <ul>${geminiData.gaps.map(g => `<li class="flex items-start gap-2 text-xs text-slate-600 mb-1"><span style="color:#f59e0b;flex-shrink:0;">▲</span>${esc(g)}</li>`).join('')}</ul>
+        </div>` : ''}
+
+        ${Array.isArray(geminiData.tips) && geminiData.tips.length ? `<div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Tips for This Application</p>
+            <ul>${geminiData.tips.map(t => `<li class="flex items-start gap-2 text-xs text-slate-600 mb-1"><span style="color:#6366f1;flex-shrink:0;">→</span>${esc(t)}</li>`).join('')}</ul>
+        </div>` : ''}
+    </div>`;
+
     document.getElementById('keywords-output').innerHTML = DOMPurify.sanitize(html);
 }
 
@@ -701,7 +1260,6 @@ function downloadDocx() {
     const jobTitle = String(document.getElementById('jobtitle-input').value || 'Role').replace(/[^a-z0-9\s\-]/gi,'').trim();
     const filename = `Resume_${company}_${jobTitle}.docx`.replace(/\s+/g,'_');
 
-    // Styled HTML template for Word — uses safe HTML already sanitised
     const docHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 body        { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; color:#1a1a1a; }
 h1          { font-size:20pt; font-weight:bold; margin:0 0 4pt; color:#1a1a2e; }
@@ -723,7 +1281,6 @@ hr          { border:none; border-top:1pt solid #e5e7eb; margin:8pt 0; }
         triggerDownload(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         toast('Downloaded! Open in Google Docs → File → Open → Upload.');
     } catch {
-        // Fallback: HTML (Google Docs also opens this via File > Open)
         const blob2 = new Blob([docHtml], { type:'text/html' });
         triggerDownload(blob2, filename.replace('.docx','.html'), 'text/html');
         toast('Downloaded as .html — open it via Google Docs › File › Open.');
@@ -757,7 +1314,8 @@ function saveHistory(inputs) {
         link:     inputs.link,
         date:     new Date().toLocaleDateString(),
         resume:   currentResume,
-        score:    currentKeyData?.ats_score
+        scoreBefore: preScore  ? preScore.score  : null,
+        scoreAfter:  postScore ? postScore.score : null
     });
     localStorage.setItem('history', JSON.stringify(all.slice(0, 12)));
     renderHistory();
@@ -772,18 +1330,25 @@ function renderHistory() {
     const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     document.getElementById('history-list').innerHTML = DOMPurify.sanitize(
         all.map(e => {
-            const scoreEl = e.score
-                ? `<span class="text-xs font-semibold px-1.5 py-0.5 rounded ${e.score>=8?'bg-emerald-50 text-emerald-600':'bg-amber-50 text-amber-600'}">${parseInt(e.score)}/10</span>`
-                : '';
+            // Support both old format (score 0-10) and new format (scoreAfter 0-100)
+            let scoreDisplay = '';
+            if (e.scoreAfter != null) {
+                const s = e.scoreAfter;
+                const cls = s >= 75 ? 'bg-emerald-50 text-emerald-600' : s >= 60 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-500';
+                scoreDisplay = `<span class="text-xs font-semibold px-1.5 py-0.5 rounded ${cls}">${s}/100</span>`;
+            } else if (e.score != null) {
+                const s = parseInt(e.score);
+                const cls = s >= 8 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600';
+                scoreDisplay = `<span class="text-xs font-semibold px-1.5 py-0.5 rounded ${cls}">${s}/10</span>`;
+            }
             return `<div class="history-card bg-white border border-slate-200 rounded-xl p-3 cursor-pointer transition-all" data-id="${parseInt(e.id)}">
-                <div class="flex justify-between items-start mb-0.5"><p class="font-semibold text-slate-700 text-xs truncate mr-2">${esc(e.company||'Unknown')}</p>${scoreEl}</div>
+                <div class="flex justify-between items-start mb-0.5"><p class="font-semibold text-slate-700 text-xs truncate mr-2">${esc(e.company||'Unknown')}</p>${scoreDisplay}</div>
                 <p class="text-xs text-slate-500 truncate">${esc(e.jobTitle||'Unknown role')}</p>
                 <p class="text-xs text-slate-300 mt-1">${esc(e.date||'')}</p>
             </div>`;
         }).join('')
     );
 
-    // Attach click handlers safely (not via inline onclick — avoids CSP issues)
     document.querySelectorAll('.history-card[data-id]').forEach(card => {
         card.addEventListener('click', () => loadFromHistory(parseInt(card.dataset.id)));
     });
@@ -812,7 +1377,6 @@ function clearHistory() {
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 function parseJsonSafely(raw) {
-    // Strip accidental markdown code fences
     const cleaned = raw.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
     try {
         return JSON.parse(cleaned);
