@@ -1501,26 +1501,43 @@ function clearHistory() {
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────
+function fixNewlinesInJsonStrings(text) {
+    let result = '';
+    let inString = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '\\' && inString) { result += ch + (text[i+1] || ''); i++; continue; }
+        if (ch === '"') { inString = !inString; result += ch; continue; }
+        if (inString && ch === '\n') { result += '\\n'; continue; }
+        if (inString && ch === '\r') { result += '\\r'; continue; }
+        if (inString && ch === '\t') { result += '\\t'; continue; }
+        result += ch;
+    }
+    return result;
+}
+
 function parseJsonSafely(raw) {
     let text = raw.trim();
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     try { return JSON.parse(text); } catch {}
 
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
+    // Fix unescaped newlines/tabs inside JSON string values
+    let fixed = fixNewlinesInJsonStrings(text);
+    try { return JSON.parse(fixed); } catch {}
+
+    const start = fixed.indexOf('{');
+    const end = fixed.lastIndexOf('}');
     if (start !== -1 && end > start) {
-        let slice = text.slice(start, end + 1);
+        let slice = fixed.slice(start, end + 1);
         try { return JSON.parse(slice); } catch {}
-        // Fix common Gemini JSON issues: trailing commas, unescaped newlines in strings
         slice = slice.replace(/,\s*([}\]])/g, '$1');
-        slice = slice.replace(/(?<=:\s*"(?:[^"\\]|\\.)*)(?<!\\)\n/g, '\\n');
         try { return JSON.parse(slice); } catch {}
     }
 
-    // Last resort: try to extract any JSON-like content between code fences
     const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     if (fenceMatch) {
-        try { return JSON.parse(fenceMatch[1]); } catch {}
+        let fenced = fixNewlinesInJsonStrings(fenceMatch[1]);
+        try { return JSON.parse(fenced); } catch {}
     }
 
     console.error('Failed to parse Gemini response:', text.substring(0, 500));
