@@ -1140,13 +1140,15 @@ Evaluate from a 6-second recruiter scan perspective:
 ── STAGE 3: THE REWRITER ──
 Rewrite the resume following these strict rules:
 
-HARVARD CAREER SERVICES FORMAT:
-- Name centred at top, contact info on one line below (email | phone | LinkedIn | location)
-- Sections in this order: Summary, Experience, Skills, Education, Projects, Certifications (skip empty sections)
-- Each job entry: Company — Role (Start–End) on one line
+RESUME FORMAT (match this structure exactly):
+- Name centred at top, contact info on one line below (phone | email | LinkedIn | location)
+- Sections in this order: PROFESSIONAL SUMMARY, TECHNICAL SKILLS, WORK EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS & AWARDS (skip empty sections)
+- Section headers: ALL CAPS, bold, with a horizontal rule below
+- Each job entry on one line: **Role** | Company, Location followed by date range right-aligned (e.g. "Oct 2022 - Oct 2023")
+- NEVER use em dashes (—) or en dashes (–) anywhere in the resume. Use | as separator, - for date ranges
 - Bullets under each role: 3-6 per role, most relevant first
-- Education: Degree, Institution, Year — one line each
-- Skills: grouped by category on one line (e.g. "Languages: Python, Java, Go")
+- Education: **Degree Name** on one line, Institution and date on next line, then relevant modules in italics
+- Skills: grouped by category with bold label (e.g. "**Networking:** TCP/IP, VLANs, Layer 1/2/3")
 - Keep to a concise, one-page-equivalent length
 
 GOOGLE X-Y-Z BULLET FORMAT:
@@ -1167,7 +1169,7 @@ STRICT INTEGRITY RULES:
 - Reorder sections and bullets to lead with most relevant content
 
 OUTPUT FORMAT:
-Clean Markdown only: ## for section headers, ### for job/degree titles, - for bullets. No tables. No columns. No bold/italic except name.
+Clean Markdown: ## for section headers (ALL CAPS), ### for job/degree titles, - for bullets. Use **bold** for role titles, company names, degree names, and skill category labels. Use *italics* for relevant modules and dates. No tables. No columns. No em dashes or en dashes anywhere.
 
 ── STAGE 4: THE HIRING MANAGER ──
 Review the rewritten resume as if you are the hiring manager for this specific role:
@@ -1209,7 +1211,7 @@ Missing soft skills to weave in: ${missingSoft.join(', ') || 'None'}
 Missing certifications/education keywords: ${missingCerts.join(', ') || 'None'}
 Missing resume sections: ${gapAnalysis ? gapAnalysis.breakdown.sections.missing.join(', ') || 'None' : 'N/A'}
 
-REMINDER: Use ## for ALL section headers (## Summary, ## Experience, ## Skills, ## Education, etc.) — this is critical for ATS parsing. Every work bullet must follow Google X-Y-Z format: "Accomplished [X] as measured by [Y], by doing [Z]."
+REMINDER: Use ## for ALL section headers in CAPS (## PROFESSIONAL SUMMARY, ## WORK EXPERIENCE, ## TECHNICAL SKILLS, ## EDUCATION, etc.) - this is critical for ATS parsing. Every work bullet must follow Google X-Y-Z format: "Accomplished [X] as measured by [Y], by doing [Z]." NEVER use em dashes or en dashes - use | as separator and - for date ranges.
 
 --- BASE RESUME ---
 ${i.base}
@@ -1388,18 +1390,19 @@ function downloadDocx() {
     const jobTitle = String(document.getElementById('jobtitle-input').value || 'Role').replace(/[^a-z0-9\s\-]/gi,'').trim();
     const filename = `Resume_${company}_${jobTitle}.docx`.replace(/\s+/g,'_');
 
+    const cleanHtml = currentResumeHtml.replace(/—/g, '|').replace(/–/g, '-');
     const docHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-body        { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; color:#1a1a1a; }
-h1          { font-size:20pt; font-weight:bold; margin:0 0 4pt; color:#1a1a2e; }
-h2          { font-size:12pt; font-weight:bold; margin:14pt 0 4pt; color:#1a1a2e; border-bottom:1pt solid #6366f1; padding-bottom:2pt; text-transform:uppercase; letter-spacing:.5pt; }
-h3          { font-size:11pt; font-weight:bold; margin:8pt 0 2pt; color:#1f2937; }
-p           { margin:3pt 0; line-height:1.4; }
-ul          { margin:3pt 0 6pt; padding-left:18pt; }
-li          { margin-bottom:2pt; line-height:1.4; }
+body        { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; color:#000; }
+h1          { font-size:20pt; font-weight:bold; margin:0 0 2pt; color:#000; text-align:center; }
+h2          { font-size:12pt; font-weight:bold; margin:14pt 0 2pt; color:#000; border-bottom:1.5pt solid #2563eb; padding-bottom:2pt; text-transform:uppercase; letter-spacing:.5pt; }
+h3          { font-size:11pt; font-weight:bold; margin:8pt 0 2pt; color:#000; }
+p           { margin:2pt 0; line-height:1.3; }
+ul          { margin:2pt 0 4pt; padding-left:18pt; }
+li          { margin-bottom:1pt; line-height:1.3; }
 strong      { font-weight:bold; }
-em          { font-style:italic; color:#4b5563; }
-hr          { border:none; border-top:1pt solid #e5e7eb; margin:8pt 0; }
-</style></head><body>${currentResumeHtml}</body></html>`;
+em          { font-style:italic; }
+hr          { border:none; border-top:1pt solid #d1d5db; margin:6pt 0; }
+</style></head><body>${cleanHtml}</body></html>`;
 
     try {
         const blob = htmlDocx.asBlob(docHtml, {
