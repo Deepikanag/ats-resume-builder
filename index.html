@@ -1384,12 +1384,26 @@ function switchTab(tab) {
 }
 
 // ── Resume formatter (Word-compatible HTML) ──────────────────────────────
+function centerRow(content, style) {
+    return `<table width="100%" style="border-collapse:collapse;"><tr><td align="center" style="border:none;padding:0;${style}">${content}</td></tr></table>\n`;
+}
+
+function twoColRow(left, right, opts = {}) {
+    const mt = opts.marginTop || '4pt';
+    const lStyle = opts.leftStyle || '';
+    const rStyle = opts.rightStyle || 'font-style:italic;';
+    return `<table width="100%" style="border-collapse:collapse;margin:${mt} 0 0;"><tr>` +
+        `<td style="border:none;padding:0;font-size:10pt;${lStyle}">${left}</td>` +
+        `<td align="right" style="border:none;padding:0;font-size:10pt;white-space:nowrap;${rStyle}">${right}</td>` +
+        `</tr></table>\n`;
+}
+
 function buildResumeHtml(md) {
     const clean = md.replace(/—/g, '|').replace(/–/g, '-');
     const lines = clean.split('\n');
     let html = '';
     let inList = false;
-    let nameFound = false;
+    let centerLines = [];
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trimEnd();
@@ -1397,20 +1411,23 @@ function buildResumeHtml(md) {
 
         const centerMatch = line.match(/^<center>(.*?)<\/center>/i);
         if (centerMatch) {
-            const content = centerMatch[1].trim();
-            if (!nameFound) {
-                nameFound = true;
-                html += `<p align="center" style="font-size:22pt;font-weight:bold;margin:0 0 2pt;">${content}</p>\n`;
-            } else {
-                html += `<p align="center" style="font-size:9pt;margin:0 0 1pt;color:#333;">${fmtInline(content)}</p>\n`;
-            }
+            centerLines.push(centerMatch[1].trim());
             continue;
+        }
+
+        // Flush centered header block (name + optional tagline + contact)
+        if (centerLines.length && !line.match(/^<center>/i)) {
+            if (centerLines.length >= 1) html += centerRow(centerLines[0], 'font-size:22pt;font-weight:bold;');
+            if (centerLines.length >= 2) html += centerRow(fmtInline(centerLines[1]), 'font-size:10pt;color:#444;');
+            if (centerLines.length >= 3) html += centerRow(fmtInline(centerLines[2]), 'font-size:9pt;color:#333;');
+            for (let j = 3; j < centerLines.length; j++) html += centerRow(fmtInline(centerLines[j]), 'font-size:9pt;color:#333;');
+            centerLines = [];
         }
 
         if (/^#{2}\s+/.test(line)) {
             if (inList) { html += '</ul>\n'; inList = false; }
             const title = line.replace(/^#{2,}\s+/, '').replace(/\*\*/g, '').trim();
-            html += `<p style="font-size:11pt;font-weight:bold;text-transform:uppercase;letter-spacing:.5pt;margin:10pt 0 0;padding-bottom:2pt;border-bottom:1.5pt solid #2563eb;">${title}</p>\n`;
+            html += `<p style="font-size:11pt;font-weight:bold;text-transform:uppercase;margin:8pt 0 0;padding-bottom:2pt;border-bottom:1pt solid #333;">${title}</p>\n`;
             continue;
         }
 
@@ -1422,9 +1439,9 @@ function buildResumeHtml(md) {
         }
 
         if (/^\s*[-*]\s+/.test(line)) {
-            if (!inList) { html += '<ul style="margin:2pt 0 4pt;padding-left:16pt;">\n'; inList = true; }
+            if (!inList) { html += '<ul style="margin:1pt 0 3pt;padding-left:18pt;">\n'; inList = true; }
             const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
-            html += `<li style="font-size:10.5pt;margin-bottom:1pt;line-height:1.25;">${fmtInline(bullet)}</li>\n`;
+            html += `<li style="font-size:10pt;margin-bottom:0;line-height:1.2;">${fmtInline(bullet)}</li>\n`;
             continue;
         }
 
@@ -1434,16 +1451,17 @@ function buildResumeHtml(md) {
         }
 
         if (inList) { html += '</ul>\n'; inList = false; }
-        // Check if this is an institution + date line (e.g. "Trinity College Dublin *Sept 2025 - Present*")
         const instDate = line.match(/^(.+?)\s+\*([^*]+)\*\s*$/);
         if (instDate) {
-            html += `<table width="100%" style="border-collapse:collapse;margin:0;padding:0;"><tr>` +
-                `<td style="border:none;padding:0;font-size:10pt;color:#2563eb;">${fmtInline(instDate[1].trim())}</td>` +
-                `<td align="right" style="border:none;padding:0;font-size:10pt;font-style:italic;color:#555;">${instDate[2].trim()}</td>` +
-                `</tr></table>\n`;
+            html += twoColRow(fmtInline(instDate[1].trim()), instDate[2].trim(),
+                { marginTop: '0', leftStyle: 'color:#1a6fb5;', rightStyle: 'font-style:italic;color:#555;' });
         } else {
-            html += `<p style="font-size:10pt;margin:1pt 0;">${fmtInline(line)}</p>\n`;
+            html += `<p style="font-size:10pt;margin:0;line-height:1.2;">${fmtInline(line)}</p>\n`;
         }
+    }
+    if (centerLines.length) {
+        if (centerLines.length >= 1) html += centerRow(centerLines[0], 'font-size:22pt;font-weight:bold;');
+        for (let j = 1; j < centerLines.length; j++) html += centerRow(fmtInline(centerLines[j]), 'font-size:9pt;color:#333;');
     }
     if (inList) html += '</ul>\n';
     return html;
@@ -1460,14 +1478,23 @@ function fmtEntryRow(raw) {
     const dateMatch = raw.match(/\*([^*]+)\*\s*$/);
     const date = dateMatch ? dateMatch[1].trim() : '';
     const rest = dateMatch ? raw.slice(0, dateMatch.index).trim() : raw;
-    const title = fmtInline(rest);
-    if (date) {
-        return `<table width="100%" style="border-collapse:collapse;margin:6pt 0 1pt;padding:0;"><tr>` +
-            `<td style="border:none;padding:0;font-size:11pt;">${title}</td>` +
-            `<td align="right" style="border:none;padding:0;font-size:10pt;font-style:italic;color:#555;white-space:nowrap;">${date}</td>` +
-            `</tr></table>\n`;
+
+    // Split "**Role** | Company, Location" into role (bold black) and company (blue)
+    const parts = rest.split(/\s*\|\s*/);
+    let titleHtml = '';
+    if (parts.length >= 2) {
+        const role = fmtInline(parts[0]);
+        const companyParts = parts.slice(1).join(' | ');
+        titleHtml = `${role} <span style="font-weight:normal;">|</span> <span style="color:#1a6fb5;">${fmtInline(companyParts)}</span>`;
+    } else {
+        titleHtml = fmtInline(rest);
     }
-    return `<p style="font-size:11pt;font-weight:bold;margin:6pt 0 1pt;">${title}</p>\n`;
+
+    if (date) {
+        return twoColRow(titleHtml, date,
+            { marginTop: '6pt', leftStyle: 'font-size:11pt;', rightStyle: 'font-size:10pt;color:#555;' });
+    }
+    return `<p style="font-size:11pt;font-weight:bold;margin:6pt 0 0;">${titleHtml}</p>\n`;
 }
 
 // ── Download DOCX ──────────────────────────────────────────────────────────
