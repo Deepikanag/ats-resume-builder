@@ -152,15 +152,55 @@
                 </div>
             </div>
 
-            <div class="md:col-span-2">
-                <label class="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Base Resume
-                    <span class="font-normal text-slate-400">— paste in markdown or plain text. Include all jobs, projects, skills, education.</span>
-                </label>
-                <textarea id="base-resume-input" rows="13" maxlength="20000"
-                    placeholder="## Experience&#10;### Software Engineer — Acme Corp (Jan 2022–Present)&#10;- Built X, achieving Y&#10;- Led Z&#10;&#10;## Education&#10;### MSc Computer Science — Trinity College Dublin (2024–2025)&#10;&#10;## Skills&#10;Python, React, SQL, Docker, AWS..."
-                    class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
-                <p id="resume-char-count" class="text-xs text-slate-300 mt-1 text-right">0 / 20000 chars</p>
+            <div class="md:col-span-2 space-y-3">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs font-semibold text-slate-600">Base Resume</span>
+                    <span class="text-xs text-slate-400">— fill each section. The AI will reformat using Harvard/XYZ style.</span>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-indigo-600 mb-1">Professional Summary</label>
+                    <textarea id="resume-summary" rows="2" maxlength="1000"
+                        placeholder="2-3 sentences about your experience, strengths, and career focus.&#10;e.g. Experienced software engineer with 3+ years building scalable web applications using Python and React."
+                        class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-indigo-600 mb-1">Skills <span class="font-normal text-slate-400">— group by category, comma-separated</span></label>
+                    <textarea id="resume-skills" rows="3" maxlength="2000"
+                        placeholder="Languages: Python, JavaScript, TypeScript, SQL&#10;Frameworks: React, Flask, Django, Node.js&#10;Cloud/DevOps: AWS, Docker, Kubernetes, CI/CD&#10;Tools: Git, PostgreSQL, Redis, Jira"
+                        class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-indigo-600 mb-1">Work Experience <span class="font-normal text-slate-400">— list each role with bullets (most recent first)</span></label>
+                    <textarea id="resume-experience" rows="10" maxlength="10000"
+                        placeholder="Software Engineer — Acme Corp (Jan 2022–Present)&#10;- Built RESTful APIs using Python and Flask, serving 10k+ daily users&#10;- Reduced page load time by 40% by implementing Redis caching&#10;- Led migration from monolith to microservices across 3 teams&#10;&#10;Junior Developer — StartupXYZ (Jun 2020–Dec 2021)&#10;- Developed React frontend components with TypeScript&#10;- Wrote unit tests achieving 85% code coverage"
+                        class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-indigo-600 mb-1">Education</label>
+                    <textarea id="resume-education" rows="3" maxlength="2000"
+                        placeholder="MSc Computer Science — Trinity College Dublin (2024–2025)&#10;BSc Information Technology — University of Mumbai (2018–2022)"
+                        class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-indigo-600 mb-1">Projects <span class="font-normal text-slate-400">— optional</span></label>
+                    <textarea id="resume-projects" rows="3" maxlength="3000"
+                        placeholder="ATS Resume Optimizer — Personal project&#10;- Built a client-side ATS scoring engine with keyword matching and weighted scoring&#10;- Integrated Google Gemini API for AI-powered resume rewriting"
+                        class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-indigo-600 mb-1">Certifications <span class="font-normal text-slate-400">— optional</span></label>
+                    <textarea id="resume-certifications" rows="2" maxlength="1000"
+                        placeholder="AWS Certified Solutions Architect — Associate (2024)&#10;Google Professional Cloud Engineer (2023)"
+                        class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <p id="resume-char-count" class="text-xs text-slate-300 text-right">0 / 20000 chars</p>
             </div>
 
             <div class="md:col-span-2 flex items-center justify-between">
@@ -223,22 +263,12 @@
                 </div>
             </div>
 
-            <div class="space-y-2">
-                <button id="all-btn" onclick="doAll()"
+            <div>
+                <button id="tailor-btn" onclick="tailorResume()"
                     class="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all flex items-center justify-center gap-2"
                     style="background:linear-gradient(135deg,#6366f1,#8b5cf6);">
-                    ⚡ Tailor Resume + Interview Questions
+                    ⚡ Tailor Resume
                 </button>
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="tailor-btn" onclick="tailorResume()"
-                        class="py-2.5 rounded-xl font-medium text-indigo-700 text-sm border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors flex items-center justify-center gap-1.5">
-                        ✦ Resume Only
-                    </button>
-                    <button id="questions-btn" onclick="generateQuestions()"
-                        class="py-2.5 rounded-xl font-medium text-slate-700 text-sm border border-slate-200 bg-white hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5">
-                        ? Questions Only
-                    </button>
-                </div>
             </div>
         </div>
 
@@ -249,7 +279,7 @@
                 <div class="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4 text-3xl">📄</div>
                 <p class="font-semibold text-slate-700 mb-1">Ready to optimize</p>
                 <p class="text-xs text-slate-400 max-w-xs leading-relaxed">
-                    Paste a job description, then click <strong>⚡ Tailor Resume + Interview Questions</strong>
+                    Paste a job description, then click <strong>⚡ Tailor Resume</strong>
                 </p>
             </div>
 
@@ -269,10 +299,6 @@
                         class="px-4 py-3 text-xs font-semibold text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors flex items-center gap-1.5">
                         ATS Score
                         <span id="tab-score-badge" style="display:none;" class="text-xs font-bold px-1.5 py-0.5 rounded-full"></span>
-                    </button>
-                    <button onclick="switchTab('questions')" id="tab-questions"
-                        class="px-4 py-3 text-xs font-semibold text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors">
-                        Interview Prep
                     </button>
                 </div>
 
@@ -297,9 +323,6 @@
                     <div id="keywords-output"></div>
                 </div>
 
-                <div id="panel-questions" style="display:none;" class="flex-1 overflow-auto p-4">
-                    <div id="questions-output"></div>
-                </div>
             </div>
         </div>
     </div>
@@ -744,18 +767,21 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupCharCounters() {
-    const pairs = [
-        ['base-resume-input', 'resume-char-count', MAX_RESUME],
-        ['jd-input',          'jd-char-count',     MAX_JD]
-    ];
-    pairs.forEach(([inputId, countId, max]) => {
-        const input = document.getElementById(inputId);
-        const counter = document.getElementById(countId);
-        input.addEventListener('input', () => {
-            const len = input.value.length;
-            setText(countId, `${len.toLocaleString()} / ${max.toLocaleString()} chars`);
-            counter.style.color = len > max * 0.9 ? '#f59e0b' : '#cbd5e1';
-        });
+    // JD counter
+    const jdInput = document.getElementById('jd-input');
+    jdInput.addEventListener('input', () => {
+        const len = jdInput.value.length;
+        setText('jd-char-count', `${len.toLocaleString()} / ${MAX_JD.toLocaleString()} chars`);
+        document.getElementById('jd-char-count').style.color = len > MAX_JD * 0.9 ? '#f59e0b' : '#cbd5e1';
+    });
+    // Resume sections combined counter
+    const updateResumeCount = () => {
+        const total = RESUME_SECTIONS.reduce((sum, s) => sum + document.getElementById('resume-' + s).value.length, 0);
+        setText('resume-char-count', `${total.toLocaleString()} / ${MAX_RESUME.toLocaleString()} chars`);
+        document.getElementById('resume-char-count').style.color = total > MAX_RESUME * 0.9 ? '#f59e0b' : '#cbd5e1';
+    };
+    RESUME_SECTIONS.forEach(s => {
+        document.getElementById('resume-' + s).addEventListener('input', updateResumeCount);
     });
 }
 
@@ -766,7 +792,7 @@ function setupPreScore() {
 
     const runPreScore = () => {
         const jd = jdInput.value.trim();
-        const base = localStorage.getItem('baseResume') || '';
+        const base = buildBaseResume();
         const jobTitle = jobTitleInput.value.trim();
         const bar = document.getElementById('pre-score-bar');
 
@@ -804,12 +830,20 @@ function setupPreScore() {
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
+const RESUME_SECTIONS = ['summary','skills','experience','education','projects','certifications'];
+
 function loadSettings() {
     const g = k => localStorage.getItem(k) || '';
     document.getElementById('api-key-input').value     = g('apiKey');
-    document.getElementById('base-resume-input').value = g('baseResume');
     document.getElementById('name-input').value         = g('userName');
     document.getElementById('contact-input').value      = g('userContact');
+    RESUME_SECTIONS.forEach(s => {
+        document.getElementById('resume-' + s).value = g('resume_' + s);
+    });
+    // Migrate old single baseResume to experience section
+    if (!g('resume_experience') && g('baseResume')) {
+        document.getElementById('resume-experience').value = g('baseResume');
+    }
     let savedModel = g('geminiModel') || 'gemini-2.5-flash';
     if (!['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-2.5-pro'].includes(savedModel)) {
         savedModel = 'gemini-2.5-flash';
@@ -819,14 +853,29 @@ function loadSettings() {
     updateApiBadge(!!g('apiKey'));
 }
 
+function buildBaseResume() {
+    const g = id => document.getElementById(id).value.trim();
+    const parts = [];
+    if (g('resume-summary'))        parts.push('## Summary\n' + g('resume-summary'));
+    if (g('resume-skills'))         parts.push('## Skills\n' + g('resume-skills'));
+    if (g('resume-experience'))     parts.push('## Experience\n' + g('resume-experience'));
+    if (g('resume-education'))      parts.push('## Education\n' + g('resume-education'));
+    if (g('resume-projects'))       parts.push('## Projects\n' + g('resume-projects'));
+    if (g('resume-certifications')) parts.push('## Certifications\n' + g('resume-certifications'));
+    return parts.join('\n\n');
+}
+
 function saveSetup() {
     const trim = id => document.getElementById(id).value.trim();
     const apiKey = trim('api-key-input');
 
     localStorage.setItem('apiKey',      apiKey);
-    localStorage.setItem('baseResume',  trim('base-resume-input').slice(0, MAX_RESUME));
     localStorage.setItem('userName',    trim('name-input').slice(0, 100));
     localStorage.setItem('userContact', trim('contact-input').slice(0, 200));
+    RESUME_SECTIONS.forEach(s => {
+        localStorage.setItem('resume_' + s, document.getElementById('resume-' + s).value.trim());
+    });
+    localStorage.setItem('baseResume', buildBaseResume().slice(0, MAX_RESUME));
     localStorage.setItem('geminiModel', document.getElementById('model-select').value);
 
     updateApiBadge(!!apiKey);
@@ -836,7 +885,8 @@ function saveSetup() {
 
 function clearAllData() {
     if (!confirm('This will permanently delete your saved resume, API key, and all history. Continue?')) return;
-    ['apiKey','baseResume','userName','userContact','geminiModel','history'].forEach(k => localStorage.removeItem(k));
+    ['apiKey','baseResume','userName','userContact','geminiModel','history',
+     ...RESUME_SECTIONS.map(s => 'resume_' + s)].forEach(k => localStorage.removeItem(k));
     loadSettings();
     renderHistory();
     toast('All data cleared.');
@@ -927,7 +977,7 @@ function getInputs() {
         jobTitle: sanitiseText(document.getElementById('jobtitle-input').value).slice(0, 100),
         link:     sanitiseText(document.getElementById('link-input').value).slice(0, 500),
         jd:       sanitiseText(document.getElementById('jd-input').value).slice(0, MAX_JD),
-        base:     sanitiseText(localStorage.getItem('baseResume') || '').slice(0, MAX_RESUME),
+        base:     sanitiseText(buildBaseResume()).slice(0, MAX_RESUME),
         name:     sanitiseText(localStorage.getItem('userName') || '').slice(0, 100),
         contact:  sanitiseText(localStorage.getItem('userContact') || '').slice(0, 200)
     };
@@ -947,7 +997,7 @@ function showState(state, msg = '', sub = '') {
     if (msg) setText('loading-msg', msg);
     setText('loading-sub', sub);
     isBusy = state === 'loading';
-    ['all-btn','tailor-btn','questions-btn'].forEach(id => {
+    ['tailor-btn'].forEach(id => {
         document.getElementById(id).disabled    = isBusy;
         document.getElementById(id).style.opacity = isBusy ? '0.5' : '1';
     });
@@ -1016,17 +1066,6 @@ Return ONLY a valid JSON object:
   "tips": ["2-3 specific actionable tips from the hiring manager review"]
 }`;
 
-const QUESTIONS_SYSTEM = `You are a senior interview coach. Generate a comprehensive interview preparation pack specific to this exact role and company — never generic.
-
-Return ONLY a valid JSON object:
-{
-  "key_themes": ["3-5 core themes to weave into every answer"],
-  "behavioral": [{"question":"...","why":"what the interviewer is probing","tips":"what to include in your STAR answer"}],
-  "technical":  [{"question":"...","why":"...","tips":"..."}],
-  "company_specific": [{"question":"...","why":"...","tips":"..."}],
-  "ask_interviewer": ["4 smart specific questions to ask at the end"]
-}
-Generate exactly: 5 behavioral, 5 technical, 3 company-specific, 4 to ask.`;
 
 function buildResumePrompt(i) {
     const gapAnalysis = calculateAtsScore(i.jd, i.base, i.jobTitle);
@@ -1064,10 +1103,6 @@ ${i.jd}
 Return only valid JSON.`;
 }
 
-function buildQuestionsPrompt(i) {
-    return `Company: ${i.company || 'Not specified'}\nRole: ${i.jobTitle || 'Not specified'}\n\n--- JOB DESCRIPTION ---\n${i.jd}\n\nReturn only valid JSON.`;
-}
-
 // ── Action handlers ────────────────────────────────────────────────────────
 async function tailorResume() {
     if (isBusy) return;
@@ -1087,46 +1122,6 @@ async function tailorResume() {
     }
 }
 
-async function generateQuestions() {
-    if (isBusy) return;
-    const inputs = getInputs();
-    try {
-        validate(inputs);
-        showState('loading', 'Generating tailored interview questions…', '~15–20 seconds');
-        const raw  = await callGemini(QUESTIONS_SYSTEM, buildQuestionsPrompt(inputs), 3000);
-        const data = parseJsonSafely(raw);
-        renderQuestions(data);
-        showState('results');
-        switchTab('questions');
-    } catch (e) {
-        showState('empty');
-        toastError(e.message);
-    }
-}
-
-async function doAll() {
-    if (isBusy) return;
-    const inputs = getInputs();
-    try {
-        validate(inputs);
-        showState('loading', 'Running resume + interview prep in parallel…', 'Both requests sent simultaneously — ~30 seconds');
-        const [resumeRaw, questionsRaw] = await Promise.all([
-            callGemini(RESUME_SYSTEM,    buildResumePrompt(inputs),    4096),
-            callGemini(QUESTIONS_SYSTEM, buildQuestionsPrompt(inputs), 3000)
-        ]);
-        const resumeData    = parseJsonSafely(resumeRaw);
-        const questionsData = parseJsonSafely(questionsRaw);
-        applyResumeResult(resumeData, inputs);
-        renderQuestions(questionsData);
-        showState('results');
-        switchTab('resume');
-        saveHistory(inputs);
-        toast('Resume tailored + questions ready!');
-    } catch (e) {
-        showState('empty');
-        toastError(e.message);
-    }
-}
 
 // ── Apply results ──────────────────────────────────────────────────────────
 function applyResumeResult(data, inputs) {
@@ -1261,42 +1256,9 @@ function renderAtsScore(pre, post, geminiData) {
     document.getElementById('keywords-output').innerHTML = DOMPurify.sanitize(html);
 }
 
-// ── Render: Questions ──────────────────────────────────────────────────────
-function renderQuestions(d) {
-    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-    const card = q => `
-        <div class="border border-slate-200 rounded-xl overflow-hidden mb-2">
-            <div class="px-3 py-2 bg-slate-50"><p class="text-xs font-semibold text-slate-700">${esc(q.question)}</p></div>
-            <div class="px-3 py-2 space-y-1">
-                ${q.why  ? `<p class="text-xs text-slate-500"><strong>Why asked:</strong> ${esc(q.why)}</p>` : ''}
-                ${q.tips ? `<p class="text-xs text-indigo-600"><strong>Key points:</strong> ${esc(q.tips)}</p>` : ''}
-            </div>
-        </div>`;
-
-    const section = (title, arr, emoji, strings = false) => !Array.isArray(arr)||!arr.length ? '' : `
-        <div class="mb-5">
-            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">${emoji} ${esc(title)}</p>
-            ${strings ? arr.map(q=>`<div class="bg-indigo-50 text-indigo-800 text-xs font-medium px-3 py-2 rounded-xl mb-2">${esc(q)}</div>`).join('') : arr.map(card).join('')}
-        </div>`;
-
-    const html = `<div>
-        ${Array.isArray(d.key_themes) && d.key_themes.length ? `
-        <div class="mb-4 p-3 rounded-xl border border-purple-100 bg-purple-50">
-            <p class="text-xs font-bold text-purple-700 mb-1.5">Weave these into every answer:</p>
-            <div>${d.key_themes.map(t=>`<span class="inline-block text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full mr-1 mb-1">${esc(t)}</span>`).join('')}</div>
-        </div>` : ''}
-        ${section('Behavioral',         d.behavioral,       '🎯')}
-        ${section('Technical',          d.technical,        '⚙️')}
-        ${section('Company-Specific',   d.company_specific, '🏢')}
-        ${section('Questions to Ask',   d.ask_interviewer,  '💬', true)}
-    </div>`;
-    document.getElementById('questions-output').innerHTML = DOMPurify.sanitize(html);
-}
-
 // ── Tabs ───────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-    ['resume','keywords','questions'].forEach(t => {
+    ['resume','keywords'].forEach(t => {
         document.getElementById(`panel-${t}`).style.display = t === tab ? 'block' : 'none';
         document.getElementById(`tab-${t}`).classList.toggle('tab-active', t === tab);
     });
