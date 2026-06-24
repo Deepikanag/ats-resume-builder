@@ -1383,6 +1383,88 @@ function switchTab(tab) {
     });
 }
 
+// ── Resume formatter ──────────────────────────────────────────────────────
+function buildResumeHtml(md) {
+    const clean = md.replace(/—/g, '|').replace(/–/g, '-');
+    const lines = clean.split('\n');
+    let html = '';
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trimEnd();
+
+        // Skip standalone --- (horizontal rules after headers)
+        if (/^\s*-{3,}\s*$/.test(line)) continue;
+
+        // Center tags (name / contact line)
+        const centerMatch = line.match(/^<center>(.*?)<\/center>/i);
+        if (centerMatch) {
+            const content = centerMatch[1].trim();
+            if (i === 0) {
+                html += `<h1>${content}</h1>\n`;
+            } else {
+                html += `<p class="contact">${formatInline(content)}</p>\n`;
+            }
+            continue;
+        }
+
+        // ## Section header
+        if (/^#{2}\s+/.test(line)) {
+            if (inList) { html += '</ul>\n'; inList = false; }
+            const title = line.replace(/^#{2,}\s+/, '').replace(/\*\*/g, '').trim();
+            html += `<h2>${title}</h2>\n`;
+            continue;
+        }
+
+        // ### Job/degree title
+        if (/^#{3}\s+/.test(line)) {
+            if (inList) { html += '</ul>\n'; inList = false; }
+            const raw = line.replace(/^#{3,}\s+/, '').trim();
+            html += `<div class="entry">${formatEntryLine(raw)}</div>\n`;
+            continue;
+        }
+
+        // Bullet
+        if (/^\s*[-*]\s+/.test(line)) {
+            if (!inList) { html += '<ul>\n'; inList = true; }
+            const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
+            html += `<li>${formatInline(bullet)}</li>\n`;
+            continue;
+        }
+
+        // Blank line
+        if (!line.trim()) {
+            if (inList) { html += '</ul>\n'; inList = false; }
+            continue;
+        }
+
+        // Regular paragraph (institution line, modules, etc.)
+        if (inList) { html += '</ul>\n'; inList = false; }
+        html += `<p>${formatInline(line)}</p>\n`;
+    }
+    if (inList) html += '</ul>\n';
+    return html;
+}
+
+function formatInline(text) {
+    return text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/—/g, '|').replace(/–/g, '-');
+}
+
+function formatEntryLine(raw) {
+    // Extract date in *italics* at end: **Role** | Company, Location *Oct 2022 - Oct 2023*
+    const dateMatch = raw.match(/\*([^*]+)\*\s*$/);
+    const date = dateMatch ? dateMatch[1].trim() : '';
+    const rest = dateMatch ? raw.slice(0, dateMatch.index).trim() : raw;
+    const formatted = formatInline(rest);
+    if (date) {
+        return `<span class="entry-title">${formatted}</span><span class="entry-date">${date}</span>`;
+    }
+    return `<span class="entry-title">${formatted}</span>`;
+}
+
 // ── Download DOCX ──────────────────────────────────────────────────────────
 function downloadDocx() {
     if (!currentResume) return;
@@ -1390,19 +1472,21 @@ function downloadDocx() {
     const jobTitle = String(document.getElementById('jobtitle-input').value || 'Role').replace(/[^a-z0-9\s\-]/gi,'').trim();
     const filename = `Resume_${company}_${jobTitle}.docx`.replace(/\s+/g,'_');
 
-    const cleanHtml = currentResumeHtml.replace(/—/g, '|').replace(/–/g, '-');
+    const resumeBody = buildResumeHtml(currentResume);
     const docHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-body        { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; color:#000; }
-h1          { font-size:20pt; font-weight:bold; margin:0 0 2pt; color:#000; text-align:center; }
-h2          { font-size:12pt; font-weight:bold; margin:14pt 0 2pt; color:#000; border-bottom:1.5pt solid #2563eb; padding-bottom:2pt; text-transform:uppercase; letter-spacing:.5pt; }
-h3          { font-size:11pt; font-weight:bold; margin:8pt 0 2pt; color:#000; }
-p           { margin:2pt 0; line-height:1.3; }
-ul          { margin:2pt 0 4pt; padding-left:18pt; }
-li          { margin-bottom:1pt; line-height:1.3; }
-strong      { font-weight:bold; }
-em          { font-style:italic; }
-hr          { border:none; border-top:1pt solid #d1d5db; margin:6pt 0; }
-</style></head><body>${cleanHtml}</body></html>`;
+body         { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; padding:0; color:#000; line-height:1.15; }
+h1           { font-size:22pt; font-weight:bold; text-align:center; margin:0 0 2pt; color:#000; }
+.contact     { text-align:center; font-size:10pt; margin:0 0 6pt; color:#333; }
+h2           { font-size:11pt; font-weight:bold; text-transform:uppercase; letter-spacing:.5pt; margin:10pt 0 0; padding-bottom:2pt; border-bottom:1.5pt solid #2563eb; color:#000; }
+.entry       { margin:6pt 0 2pt; overflow:hidden; }
+.entry-title { font-size:11pt; }
+.entry-date  { float:right; font-style:italic; font-size:10pt; color:#555; }
+p            { margin:1pt 0; font-size:11pt; }
+ul           { margin:2pt 0 4pt; padding-left:16pt; }
+li           { margin-bottom:1pt; font-size:10.5pt; line-height:1.25; }
+strong       { font-weight:bold; }
+em           { font-style:italic; }
+</style></head><body>${resumeBody}</body></html>`;
 
     try {
         const blob = htmlDocx.asBlob(docHtml, {
@@ -1410,11 +1494,11 @@ hr          { border:none; border-top:1pt solid #d1d5db; margin:6pt 0; }
             margins: { top: 720, right: 900, bottom: 720, left: 900 }
         });
         triggerDownload(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        toast('Downloaded! Open in Google Docs → File → Open → Upload.');
+        toast('Downloaded! Open in Google Docs or Word.');
     } catch {
         const blob2 = new Blob([docHtml], { type:'text/html' });
         triggerDownload(blob2, filename.replace('.docx','.html'), 'text/html');
-        toast('Downloaded as .html — open it via Google Docs › File › Open.');
+        toast('Downloaded as .html — open in Google Docs or Word.');
     }
 }
 
