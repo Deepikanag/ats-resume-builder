@@ -1383,86 +1383,91 @@ function switchTab(tab) {
     });
 }
 
-// ── Resume formatter ──────────────────────────────────────────────────────
+// ── Resume formatter (Word-compatible HTML) ──────────────────────────────
 function buildResumeHtml(md) {
     const clean = md.replace(/—/g, '|').replace(/–/g, '-');
     const lines = clean.split('\n');
     let html = '';
     let inList = false;
+    let nameFound = false;
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trimEnd();
-
-        // Skip standalone --- (horizontal rules after headers)
         if (/^\s*-{3,}\s*$/.test(line)) continue;
 
-        // Center tags (name / contact line)
         const centerMatch = line.match(/^<center>(.*?)<\/center>/i);
         if (centerMatch) {
             const content = centerMatch[1].trim();
-            if (i === 0) {
-                html += `<h1>${content}</h1>\n`;
+            if (!nameFound) {
+                nameFound = true;
+                html += `<p align="center" style="font-size:22pt;font-weight:bold;margin:0 0 2pt;">${content}</p>\n`;
             } else {
-                html += `<p class="contact">${formatInline(content)}</p>\n`;
+                html += `<p align="center" style="font-size:9pt;margin:0 0 1pt;color:#333;">${fmtInline(content)}</p>\n`;
             }
             continue;
         }
 
-        // ## Section header
         if (/^#{2}\s+/.test(line)) {
             if (inList) { html += '</ul>\n'; inList = false; }
             const title = line.replace(/^#{2,}\s+/, '').replace(/\*\*/g, '').trim();
-            html += `<h2>${title}</h2>\n`;
+            html += `<p style="font-size:11pt;font-weight:bold;text-transform:uppercase;letter-spacing:.5pt;margin:10pt 0 0;padding-bottom:2pt;border-bottom:1.5pt solid #2563eb;">${title}</p>\n`;
             continue;
         }
 
-        // ### Job/degree title
         if (/^#{3}\s+/.test(line)) {
             if (inList) { html += '</ul>\n'; inList = false; }
             const raw = line.replace(/^#{3,}\s+/, '').trim();
-            html += `<div class="entry">${formatEntryLine(raw)}</div>\n`;
+            html += fmtEntryRow(raw);
             continue;
         }
 
-        // Bullet
         if (/^\s*[-*]\s+/.test(line)) {
-            if (!inList) { html += '<ul>\n'; inList = true; }
+            if (!inList) { html += '<ul style="margin:2pt 0 4pt;padding-left:16pt;">\n'; inList = true; }
             const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
-            html += `<li>${formatInline(bullet)}</li>\n`;
+            html += `<li style="font-size:10.5pt;margin-bottom:1pt;line-height:1.25;">${fmtInline(bullet)}</li>\n`;
             continue;
         }
 
-        // Blank line
         if (!line.trim()) {
             if (inList) { html += '</ul>\n'; inList = false; }
             continue;
         }
 
-        // Regular paragraph (institution line, modules, etc.)
         if (inList) { html += '</ul>\n'; inList = false; }
-        html += `<p>${formatInline(line)}</p>\n`;
+        // Check if this is an institution + date line (e.g. "Trinity College Dublin *Sept 2025 - Present*")
+        const instDate = line.match(/^(.+?)\s+\*([^*]+)\*\s*$/);
+        if (instDate) {
+            html += `<table width="100%" style="border-collapse:collapse;margin:0;padding:0;"><tr>` +
+                `<td style="border:none;padding:0;font-size:10pt;color:#2563eb;">${fmtInline(instDate[1].trim())}</td>` +
+                `<td align="right" style="border:none;padding:0;font-size:10pt;font-style:italic;color:#555;">${instDate[2].trim()}</td>` +
+                `</tr></table>\n`;
+        } else {
+            html += `<p style="font-size:10pt;margin:1pt 0;">${fmtInline(line)}</p>\n`;
+        }
     }
     if (inList) html += '</ul>\n';
     return html;
 }
 
-function formatInline(text) {
+function fmtInline(text) {
     return text
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
         .replace(/—/g, '|').replace(/–/g, '-');
 }
 
-function formatEntryLine(raw) {
-    // Extract date in *italics* at end: **Role** | Company, Location *Oct 2022 - Oct 2023*
+function fmtEntryRow(raw) {
     const dateMatch = raw.match(/\*([^*]+)\*\s*$/);
     const date = dateMatch ? dateMatch[1].trim() : '';
     const rest = dateMatch ? raw.slice(0, dateMatch.index).trim() : raw;
-    const formatted = formatInline(rest);
+    const title = fmtInline(rest);
     if (date) {
-        return `<span class="entry-title">${formatted}</span><span class="entry-date">${date}</span>`;
+        return `<table width="100%" style="border-collapse:collapse;margin:6pt 0 1pt;padding:0;"><tr>` +
+            `<td style="border:none;padding:0;font-size:11pt;">${title}</td>` +
+            `<td align="right" style="border:none;padding:0;font-size:10pt;font-style:italic;color:#555;white-space:nowrap;">${date}</td>` +
+            `</tr></table>\n`;
     }
-    return `<span class="entry-title">${formatted}</span>`;
+    return `<p style="font-size:11pt;font-weight:bold;margin:6pt 0 1pt;">${title}</p>\n`;
 }
 
 // ── Download DOCX ──────────────────────────────────────────────────────────
@@ -1474,18 +1479,9 @@ function downloadDocx() {
 
     const resumeBody = buildResumeHtml(currentResume);
     const docHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-body         { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; padding:0; color:#000; line-height:1.15; }
-h1           { font-size:22pt; font-weight:bold; text-align:center; margin:0 0 2pt; color:#000; }
-.contact     { text-align:center; font-size:10pt; margin:0 0 6pt; color:#333; }
-h2           { font-size:11pt; font-weight:bold; text-transform:uppercase; letter-spacing:.5pt; margin:10pt 0 0; padding-bottom:2pt; border-bottom:1.5pt solid #2563eb; color:#000; }
-.entry       { margin:6pt 0 2pt; overflow:hidden; }
-.entry-title { font-size:11pt; }
-.entry-date  { float:right; font-style:italic; font-size:10pt; color:#555; }
-p            { margin:1pt 0; font-size:11pt; }
-ul           { margin:2pt 0 4pt; padding-left:16pt; }
-li           { margin-bottom:1pt; font-size:10.5pt; line-height:1.25; }
-strong       { font-weight:bold; }
-em           { font-style:italic; }
+body { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; padding:0; color:#000; line-height:1.15; }
+table { border:none; }
+td { vertical-align:bottom; }
 </style></head><body>${resumeBody}</body></html>`;
 
     try {
