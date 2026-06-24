@@ -1035,32 +1035,52 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
         ]
     };
 
-    let res;
-    try {
-        res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-    } catch (netErr) {
-        throw new Error('Network error — check your internet connection and try again.');
+    const maxRetries = 2;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        let res;
+        try {
+            res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+        } catch (netErr) {
+            throw new Error('Network error — check your internet connection and try again.');
+        }
+
+        if (res.ok) {
+            const data = await res.json();
+            console.log('[Gemini] Response:', JSON.stringify(data).substring(0, 500));
+            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) {
+                const reason = data?.candidates?.[0]?.finishReason;
+                console.error('[Gemini] Empty response. finishReason:', reason, 'Full response:', JSON.stringify(data));
+                if (reason === 'SAFETY') throw new Error('Gemini blocked this request due to safety filters. Try rephrasing the job description.');
+                if (reason === 'RECITATION') throw new Error('Gemini blocked this response due to recitation policy. Try rewording your resume or JD.');
+                if (reason === 'MAX_TOKENS') throw new Error('Response was cut off — try a shorter resume or JD.');
+                throw new Error('Gemini returned an empty response. Please try again.');
+            }
+            return text;
+        }
+
+        const errBody = await res.text();
+        console.error(`[Gemini] HTTP ${res.status} (attempt ${attempt + 1}/${maxRetries}):`, errBody.substring(0, 500));
+
+        if (res.status === 503 && attempt < maxRetries - 1) {
+            console.log('[Gemini] Retrying in 5s...');
+            await new Promise(r => setTimeout(r, 5000));
+            continue;
+        }
+
+        let errMsg = `HTTP ${res.status}`;
+        try { errMsg = JSON.parse(errBody)?.error?.message || errMsg; } catch {}
+
+        if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
+        if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
+        if (res.status === 429) throw new Error('Rate limit reached. Wait a minute and try again. If this persists, you have hit the daily free limit — try again tomorrow.');
+        if (res.status === 503) throw new Error('Gemini is temporarily overloaded. Please wait 30 seconds and try again.');
+        throw new Error(`Gemini error: ${errMsg}`);
     }
-
-    if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error('Gemini returned an empty response. Please try again.');
-        return text;
-    }
-
-    let errMsg = `HTTP ${res.status}`;
-    try { const e = await res.json(); errMsg = e?.error?.message || errMsg; } catch {}
-
-    if (res.status === 400) throw new Error('Bad request. Check your API key is valid and the model name is correct.');
-    if (res.status === 403) throw new Error('Permission denied. Make sure the Generative Language API is enabled in your Google Cloud project.');
-    if (res.status === 429) throw new Error('Rate limit reached. Wait a minute and try again. If this persists, you have hit the daily free limit — try again tomorrow.');
-    if (res.status === 503) throw new Error('Gemini is temporarily overloaded. Please wait 30 seconds and try again.');
-    throw new Error(`Gemini error: ${errMsg}`);
 }
 
 // ── Inputs / Validation ────────────────────────────────────────────────────
@@ -1483,16 +1503,27 @@ function clearHistory() {
 // ── Utilities ──────────────────────────────────────────────────────────────
 function parseJsonSafely(raw) {
     let text = raw.trim();
-    // Strip markdown code fences
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    // Try direct parse first
     try { return JSON.parse(text); } catch {}
-    // Extract the first { ... } block (handles preamble/trailing text from Gemini)
+
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start !== -1 && end > start) {
-        try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+        let slice = text.slice(start, end + 1);
+        try { return JSON.parse(slice); } catch {}
+        // Fix common Gemini JSON issues: trailing commas, unescaped newlines in strings
+        slice = slice.replace(/,\s*([}\]])/g, '$1');
+        slice = slice.replace(/(?<=:\s*"(?:[^"\\]|\\.)*)(?<!\\)\n/g, '\\n');
+        try { return JSON.parse(slice); } catch {}
     }
+
+    // Last resort: try to extract any JSON-like content between code fences
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch) {
+        try { return JSON.parse(fenceMatch[1]); } catch {}
+    }
+
+    console.error('Failed to parse Gemini response:', text.substring(0, 500));
     throw new Error('Unexpected response format from Gemini. Please try again.');
 }
 
