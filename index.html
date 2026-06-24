@@ -1007,7 +1007,7 @@ function toggleKeyVisibility() {
 // ── Gemini API ─────────────────────────────────────────────────────────────
 const KNOWN_MODELS = new Set(['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro']);
 
-async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
+async function callGemini(systemPrompt, userPrompt, maxTokens = 16384) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
 
@@ -1050,15 +1050,18 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 4096) {
 
         if (res.ok) {
             const data = await res.json();
-            console.log('[Gemini] Response:', JSON.stringify(data).substring(0, 500));
+            const reason = data?.candidates?.[0]?.finishReason;
+            console.log('[Gemini] finishReason:', reason, 'Response:', JSON.stringify(data).substring(0, 500));
             const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) {
-                const reason = data?.candidates?.[0]?.finishReason;
                 console.error('[Gemini] Empty response. finishReason:', reason, 'Full response:', JSON.stringify(data));
                 if (reason === 'SAFETY') throw new Error('Gemini blocked this request due to safety filters. Try rephrasing the job description.');
                 if (reason === 'RECITATION') throw new Error('Gemini blocked this response due to recitation policy. Try rewording your resume or JD.');
                 if (reason === 'MAX_TOKENS') throw new Error('Response was cut off — try a shorter resume or JD.');
                 throw new Error('Gemini returned an empty response. Please try again.');
+            }
+            if (reason === 'MAX_TOKENS') {
+                console.warn('[Gemini] Response truncated (MAX_TOKENS). Text length:', text.length);
             }
             return text;
         }
@@ -1538,6 +1541,26 @@ function parseJsonSafely(raw) {
     if (fenceMatch) {
         let fenced = fixNewlinesInJsonStrings(fenceMatch[1]);
         try { return JSON.parse(fenced); } catch {}
+    }
+
+    // Attempt to repair truncated JSON (MAX_TOKENS cutoff)
+    let truncated = fixed || text;
+    const objStart = truncated.indexOf('{');
+    if (objStart !== -1) {
+        truncated = truncated.slice(objStart);
+        // Close any open string
+        const quotes = (truncated.match(/(?<!\\)"/g) || []).length;
+        if (quotes % 2 !== 0) truncated += '"';
+        // Close open arrays and objects
+        const openBrackets = (truncated.match(/\[/g) || []).length - (truncated.match(/\]/g) || []).length;
+        const openBraces = (truncated.match(/\{/g) || []).length - (truncated.match(/\}/g) || []).length;
+        for (let i = 0; i < openBrackets; i++) truncated += ']';
+        for (let i = 0; i < openBraces; i++) truncated += '}';
+        truncated = truncated.replace(/,\s*([}\]])/g, '$1');
+        try {
+            console.warn('[Gemini] Repaired truncated JSON');
+            return JSON.parse(truncated);
+        } catch {}
     }
 
     console.error('Failed to parse Gemini response:', text.substring(0, 500));
