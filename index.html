@@ -19,7 +19,7 @@
         https://cdn.jsdelivr.net;
       style-src 'unsafe-inline'
         https://cdn.tailwindcss.com;
-      connect-src https://generativelanguage.googleapis.com;
+      connect-src https://generativelanguage.googleapis.com https://www.arbeitnow.com;
       img-src 'self' data:;
       font-src 'self';
       frame-src 'none';
@@ -62,6 +62,11 @@
         .score-circle { width:80px; height:80px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; border:4px solid; }
         .progress-bar { height:8px; border-radius:4px; background:#e2e8f0; overflow:hidden; }
         .progress-fill { height:100%; border-radius:4px; transition:width .5s ease; }
+        .score-sm { width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid; font-size:.75rem; font-weight:700; flex-shrink:0; }
+        .job-tag { display:inline-block; font-size:.65rem; padding:2px 6px; border-radius:6px; background:#f1f5f9; color:#475569; }
+        .job-tag-remote { background:#ecfdf5; color:#059669; }
+        .job-tag-visa { background:#eff6ff; color:#2563eb; }
+        .mode-active { border-bottom:2px solid #10b981!important; color:#10b981!important; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen text-sm"
@@ -221,6 +226,80 @@
 
         <!-- LEFT: Job Input -->
         <div class="space-y-4">
+            <!-- Mode Toggle -->
+            <div class="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <button onclick="switchInputMode('paste')" id="mode-paste"
+                    class="flex-1 px-4 py-2.5 text-xs font-semibold text-center border-b-2 border-indigo-500 text-indigo-600 transition-colors">
+                    Paste a Job
+                </button>
+                <button onclick="switchInputMode('find')" id="mode-find"
+                    class="flex-1 px-4 py-2.5 text-xs font-semibold text-center border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition-colors">
+                    Find Jobs
+                </button>
+            </div>
+
+            <!-- MODE: Find Jobs -->
+            <div id="input-mode-find" style="display:none;" class="space-y-4">
+                <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                    <h2 class="font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold flex items-center justify-center">🔍</span>
+                        Job Search
+                    </h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">Keywords</label>
+                            <input id="job-search-keyword" type="text" placeholder="software engineer, data analyst, security..."
+                                class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1">Location</label>
+                                <input id="job-search-location" type="text" placeholder="Ireland, Dublin, Remote..."
+                                    class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                            </div>
+                            <div class="flex items-end pb-1">
+                                <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                                    <input id="job-search-visa" type="checkbox" checked class="rounded border-slate-300 accent-emerald-600" />
+                                    Visa Sponsorship
+                                </label>
+                            </div>
+                        </div>
+                        <button id="job-search-btn" onclick="searchJobs()"
+                            class="w-full py-2.5 rounded-xl font-semibold text-white text-sm transition-all"
+                            style="background:linear-gradient(135deg,#10b981,#059669);">
+                            Search Jobs
+                        </button>
+                    </div>
+                </div>
+
+                <div id="job-search-loading" style="display:none;" class="flex flex-col items-center py-8">
+                    <div class="w-8 h-8 rounded-full border-4 border-emerald-200 border-t-emerald-600 spinner mb-3"></div>
+                    <p class="text-xs text-slate-500 pulse">Searching visa-sponsoring jobs…</p>
+                </div>
+
+                <div id="job-results-container" style="display:none;" class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <p id="job-results-count" class="text-xs text-slate-400"></p>
+                        <select id="job-sort" onchange="sortJobResults()" class="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
+                            <option value="match">Best Match</option>
+                            <option value="recent">Most Recent</option>
+                        </select>
+                    </div>
+                    <div id="job-results-list" class="space-y-3 max-h-[65vh] overflow-y-auto pr-1"></div>
+                    <button id="job-load-more" onclick="searchJobs(jobSearchPage+1)" style="display:none;"
+                        class="w-full py-2 rounded-xl text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors">
+                        Load more jobs
+                    </button>
+                </div>
+
+                <div id="job-bookmarks-section" style="display:none;" class="space-y-3">
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wide">Saved Jobs</p>
+                    <div id="job-bookmarks-list" class="space-y-3"></div>
+                </div>
+            </div>
+
+            <!-- MODE: Paste a Job (existing) -->
+            <div id="input-mode-paste">
             <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                 <h2 class="font-semibold text-slate-700 mb-4 flex items-center gap-2">
                     <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center">1</span>
@@ -270,6 +349,7 @@
                     ⚡ Tailor Resume
                 </button>
             </div>
+            </div><!-- /input-mode-paste -->
         </div>
 
         <!-- RIGHT: Results -->
@@ -335,6 +415,17 @@
         </div>
         <div id="history-list" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
     </div>
+
+<!-- Interview Prep Modal -->
+<div id="interview-modal" style="display:none;" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col">
+        <div class="flex items-center justify-between p-4 border-b border-slate-200">
+            <h3 id="interview-modal-title" class="font-semibold text-slate-700 text-sm">Interview Prep</h3>
+            <button onclick="closeInterviewModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+        </div>
+        <div id="interview-content" class="p-4 overflow-y-auto flex-1"></div>
+    </div>
+</div>
 
 </main>
 
@@ -854,7 +945,10 @@ function loadSettings() {
 }
 
 function buildBaseResume() {
-    const g = id => document.getElementById(id).value.trim();
+    const g = id => {
+        const el = document.getElementById(id);
+        return (el && el.value.trim()) || (localStorage.getItem(id.replace('-', '_')) || '').trim();
+    };
     const parts = [];
     if (g('resume-summary'))        parts.push('## Summary\n' + g('resume-summary'));
     if (g('resume-skills'))         parts.push('## Skills\n' + g('resume-skills'));
@@ -1414,6 +1508,323 @@ function toast(msg, isError = false, duration = 3500) {
 }
 
 function toastError(msg) { toast(msg, true, 7000); }
+
+// ── Job Finder ────────────────────────────────────────────────────────────
+let jobResults = [];
+let jobSearchPage = 1;
+let jobSearchMeta = null;
+
+function switchInputMode(mode) {
+    document.getElementById('input-mode-paste').style.display = mode === 'paste' ? 'block' : 'none';
+    document.getElementById('input-mode-find').style.display  = mode === 'find'  ? 'block' : 'none';
+    const pasteBtn = document.getElementById('mode-paste');
+    const findBtn  = document.getElementById('mode-find');
+    pasteBtn.style.borderBottomColor = mode === 'paste' ? '#6366f1' : 'transparent';
+    pasteBtn.style.color             = mode === 'paste' ? '#4f46e5' : '#64748b';
+    findBtn.style.borderBottomColor  = mode === 'find'  ? '#10b981' : 'transparent';
+    findBtn.style.color              = mode === 'find'  ? '#059669' : '#64748b';
+    if (mode === 'find') renderBookmarks();
+}
+
+async function searchJobs(page = 1) {
+    const keyword  = document.getElementById('job-search-keyword').value.trim().toLowerCase();
+    const location = document.getElementById('job-search-location').value.trim().toLowerCase();
+    const visa     = document.getElementById('job-search-visa').checked;
+
+    localStorage.setItem('jobSearchLastKeyword', keyword);
+    localStorage.setItem('jobSearchLastLocation', location);
+
+    document.getElementById('job-search-loading').style.display = 'flex';
+    document.getElementById('job-results-container').style.display = 'none';
+    document.getElementById('job-search-btn').disabled = true;
+
+    try {
+        let url = `https://www.arbeitnow.com/api/job-board-api?page=${page}`;
+        if (visa) url += '&visa_sponsorship=true';
+
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Job search failed (${resp.status})`);
+        const json = await resp.json();
+
+        jobSearchMeta = json.meta || {};
+        jobSearchPage = page;
+
+        let jobs = json.data || [];
+
+        if (keyword) {
+            const kws = keyword.split(/[,\s]+/).filter(Boolean);
+            jobs = jobs.filter(j => {
+                const hay = `${j.title} ${j.company_name} ${j.description || ''} ${(j.tags||[]).join(' ')}`.toLowerCase();
+                return kws.some(k => hay.includes(k));
+            });
+        }
+        if (location) {
+            const locs = location.split(/[,\s]+/).filter(Boolean);
+            jobs = jobs.filter(j => {
+                const loc = (j.location || '').toLowerCase();
+                return locs.some(l => loc.includes(l));
+            });
+        }
+
+        const resumeText = buildBaseResume();
+        jobs.forEach(j => {
+            const plain = stripHtml(j.description || '');
+            const result = calculateAtsScore(plain, resumeText, j.title);
+            j._atsScore = result ? result.score : 0;
+            j._plainDesc = plain;
+        });
+
+        if (page === 1) {
+            jobResults = jobs;
+        } else {
+            jobResults = jobResults.concat(jobs);
+        }
+
+        sortJobResults();
+    } catch (e) {
+        toastError(e.message);
+    } finally {
+        document.getElementById('job-search-loading').style.display = 'none';
+        document.getElementById('job-search-btn').disabled = false;
+    }
+}
+
+function sortJobResults() {
+    const sortBy = document.getElementById('job-sort').value;
+    if (sortBy === 'match') {
+        jobResults.sort((a, b) => b._atsScore - a._atsScore);
+    } else {
+        jobResults.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+    renderJobResults();
+}
+
+function renderJobResults() {
+    const container = document.getElementById('job-results-container');
+    const list = document.getElementById('job-results-list');
+
+    if (!jobResults.length) {
+        container.style.display = 'block';
+        document.getElementById('job-results-count').textContent = 'No jobs found. Try different keywords.';
+        list.innerHTML = '';
+        document.getElementById('job-load-more').style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+    document.getElementById('job-results-count').textContent = `${jobResults.length} job${jobResults.length !== 1 ? 's' : ''} found`;
+    list.innerHTML = jobResults.map(renderJobCard).join('');
+
+    const hasMore = jobSearchMeta.current_page && jobSearchMeta.current_page < jobSearchMeta.last_page;
+    document.getElementById('job-load-more').style.display = hasMore ? 'block' : 'none';
+}
+
+function renderJobCard(job) {
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const s = job._atsScore || 0;
+    const col = s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444';
+    const bg  = s >= 75 ? '#ecfdf5' : s >= 60 ? '#fffbeb' : s >= 40 ? '#fff7ed' : '#fef2f2';
+    const bookmarked = isBookmarked(job.slug);
+    const tags = (job.tags || []).slice(0, 4).map(t => `<span class="job-tag">${esc(t)}</span>`).join('');
+    const remoteBadge = job.remote ? '<span class="job-tag job-tag-remote">Remote</span>' : '';
+
+    return `<div class="bg-white border border-slate-200 rounded-xl p-4 hover:border-emerald-300 hover:shadow-sm transition-all">
+        <div class="flex justify-between items-start gap-3 mb-2">
+            <div class="min-w-0 flex-1">
+                <p class="font-semibold text-slate-700 text-sm leading-tight">${esc(job.title)}</p>
+                <p class="text-xs text-slate-500 mt-0.5">${esc(job.company_name)} · ${esc(job.location || 'Not specified')}</p>
+            </div>
+            <div class="score-sm" style="border-color:${col};background:${bg};color:${col};">${s}</div>
+        </div>
+        <div class="flex flex-wrap gap-1 mb-2">${remoteBadge}${tags}</div>
+        <p class="text-xs text-slate-400 mb-3">${relativeDate(job.created_at)}</p>
+        <div class="flex flex-wrap gap-2">
+            <button onclick="expandJobDesc('${esc(job.slug)}')" class="text-xs text-slate-500 hover:text-slate-700 underline">View</button>
+            <button onclick="tailorForJob('${esc(job.slug)}')"
+                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg transition-colors">Tailor</button>
+            <button onclick="prepInterview('${esc(job.slug)}')"
+                class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg transition-colors">Interview Prep</button>
+            <button onclick="bookmarkJob('${esc(job.slug)}')"
+                class="text-xs ${bookmarked ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'}" title="${bookmarked ? 'Remove bookmark' : 'Bookmark'}">
+                ${bookmarked ? '★' : '☆'}
+            </button>
+        </div>
+        <div id="job-desc-${esc(job.slug)}" style="display:none;" class="mt-3 text-xs text-slate-600 border-t border-slate-100 pt-3 max-h-48 overflow-y-auto leading-relaxed"></div>
+    </div>`;
+}
+
+function expandJobDesc(slug) {
+    const el = document.getElementById('job-desc-' + slug);
+    if (!el) return;
+    if (el.style.display === 'none') {
+        const job = jobResults.find(j => j.slug === slug) || getBookmarks().find(b => b.slug === slug);
+        if (job) el.innerHTML = DOMPurify.sanitize(job.description || job._plainDesc || '');
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function tailorForJob(slug) {
+    const job = jobResults.find(j => j.slug === slug) || getBookmarks().find(b => b.slug === slug);
+    if (!job) return;
+    document.getElementById('company-input').value  = job.company_name || '';
+    document.getElementById('jobtitle-input').value = job.title || '';
+    document.getElementById('link-input').value     = job.url || '';
+    document.getElementById('jd-input').value       = job._plainDesc || stripHtml(job.description || '');
+    document.getElementById('jd-input').dispatchEvent(new Event('input', { bubbles: true }));
+    switchInputMode('paste');
+    toast('Job details filled — review and click Tailor Resume');
+}
+
+function stripHtml(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = DOMPurify.sanitize(html);
+    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+}
+
+function relativeDate(iso) {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const d = Math.floor(diff / 86400000);
+    if (d < 1) return 'Today';
+    if (d === 1) return '1 day ago';
+    if (d < 7) return d + ' days ago';
+    if (d < 30) return Math.floor(d / 7) + 'w ago';
+    return Math.floor(d / 30) + 'mo ago';
+}
+
+// ── Bookmarks ─────────────────────────────────────────────────────────────
+function getBookmarks() {
+    try { return JSON.parse(localStorage.getItem('jobBookmarks') || '[]'); } catch { return []; }
+}
+
+function isBookmarked(slug) {
+    return getBookmarks().some(b => b.slug === slug);
+}
+
+function bookmarkJob(slug) {
+    let bookmarks = getBookmarks();
+    const idx = bookmarks.findIndex(b => b.slug === slug);
+    if (idx !== -1) {
+        bookmarks.splice(idx, 1);
+        toast('Bookmark removed');
+    } else {
+        const job = jobResults.find(j => j.slug === slug);
+        if (job) {
+            bookmarks.unshift({
+                slug: job.slug, title: job.title, company_name: job.company_name,
+                location: job.location, url: job.url, description: job.description,
+                _plainDesc: job._plainDesc, _atsScore: job._atsScore,
+                tags: job.tags, remote: job.remote, created_at: job.created_at
+            });
+            toast('Job bookmarked');
+        }
+    }
+    localStorage.setItem('jobBookmarks', JSON.stringify(bookmarks.slice(0, 50)));
+    renderJobResults();
+    renderBookmarks();
+}
+
+function renderBookmarks() {
+    const bookmarks = getBookmarks();
+    const section = document.getElementById('job-bookmarks-section');
+    const list = document.getElementById('job-bookmarks-list');
+    if (!bookmarks.length) {
+        section.style.display = 'none';
+        return;
+    }
+    section.style.display = 'block';
+    list.innerHTML = bookmarks.map(renderJobCard).join('');
+}
+
+// ── Interview Prep ────────────────────────────────────────────────────────
+const INTERVIEW_SYSTEM = `You are an expert interview coach. Given a job description and candidate resume, generate targeted interview preparation.
+
+Return ONLY valid JSON:
+{
+  "key_themes": ["3-5 core themes to weave into every answer"],
+  "questions": [
+    {
+      "type": "technical|behavioral|situational|company",
+      "question": "the interview question",
+      "why": "why they ask this (1 sentence)",
+      "talking_points": ["2-3 suggested points from the candidate's resume to mention"]
+    }
+  ]
+}
+
+Generate exactly 8 questions: 3 technical (based on required skills), 2 behavioral (STAR format), 2 situational (role-specific), 1 company/culture fit.
+Tailor talking points to the candidate's ACTUAL experience from their resume. Be specific, never generic.`;
+
+async function prepInterview(slug) {
+    const job = jobResults.find(j => j.slug === slug) || getBookmarks().find(b => b.slug === slug);
+    if (!job) return;
+
+    const modal = document.getElementById('interview-modal');
+    const content = document.getElementById('interview-content');
+    document.getElementById('interview-modal-title').textContent = `Interview Prep — ${job.company_name}`;
+    content.innerHTML = '<div class="flex flex-col items-center py-8"><div class="w-8 h-8 rounded-full border-4 border-indigo-200 border-t-indigo-600 spinner mb-3"></div><p class="text-xs text-slate-500 pulse">Generating interview questions…</p></div>';
+    modal.style.display = 'flex';
+
+    try {
+        const resume = buildBaseResume();
+        const prompt = `Company: ${job.company_name}\nRole: ${job.title}\n\n--- JOB DESCRIPTION ---\n${job._plainDesc || stripHtml(job.description || '')}\n\n--- CANDIDATE RESUME ---\n${resume}\n\nReturn only valid JSON.`;
+        const raw = await callGemini(INTERVIEW_SYSTEM, prompt, 3000);
+        const data = parseJsonSafely(raw);
+        renderInterviewQuestions(data);
+    } catch (e) {
+        content.innerHTML = `<div class="text-center py-8"><p class="text-red-500 text-sm mb-2">Failed to generate questions</p><p class="text-xs text-slate-400">${e.message}</p></div>`;
+    }
+}
+
+function renderInterviewQuestions(d) {
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const typeColor = { technical: '#6366f1', behavioral: '#f59e0b', situational: '#10b981', company: '#8b5cf6' };
+    const typeLabel = { technical: 'Technical', behavioral: 'Behavioral', situational: 'Situational', company: 'Company Fit' };
+
+    let html = '';
+    if (Array.isArray(d.key_themes) && d.key_themes.length) {
+        html += `<div class="mb-4 p-3 rounded-xl border border-purple-100 bg-purple-50">
+            <p class="text-xs font-bold text-purple-700 mb-1.5">Weave these themes into every answer:</p>
+            <div>${d.key_themes.map(t => `<span class="inline-block text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full mr-1 mb-1">${esc(t)}</span>`).join('')}</div>
+        </div>`;
+    }
+
+    if (Array.isArray(d.questions)) {
+        html += d.questions.map(q => {
+            const col = typeColor[q.type] || '#64748b';
+            const label = typeLabel[q.type] || q.type;
+            const points = Array.isArray(q.talking_points)
+                ? q.talking_points.map(p => `<li class="text-xs text-slate-600 mb-0.5">→ ${esc(p)}</li>`).join('')
+                : '';
+            return `<div class="border border-slate-200 rounded-xl overflow-hidden mb-3">
+                <div class="px-3 py-2 bg-slate-50 flex items-center gap-2">
+                    <span class="text-xs font-bold px-1.5 py-0.5 rounded" style="background:${col}18;color:${col};">${esc(label)}</span>
+                    <p class="text-xs font-semibold text-slate-700 flex-1">${esc(q.question)}</p>
+                </div>
+                <div class="px-3 py-2 space-y-1">
+                    ${q.why ? `<p class="text-xs text-slate-500"><strong>Why:</strong> ${esc(q.why)}</p>` : ''}
+                    ${points ? `<ul class="mt-1">${points}</ul>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    document.getElementById('interview-content').innerHTML = DOMPurify.sanitize(html);
+}
+
+function closeInterviewModal() {
+    document.getElementById('interview-modal').style.display = 'none';
+}
+
+// Restore last search on load
+(function initJobFinder() {
+    const kw = localStorage.getItem('jobSearchLastKeyword') || '';
+    const loc = localStorage.getItem('jobSearchLastLocation') || '';
+    if (kw) document.getElementById('job-search-keyword').value = kw;
+    if (loc) document.getElementById('job-search-location').value = loc;
+})();
 </script>
 </body>
 </html>
