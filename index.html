@@ -1385,7 +1385,7 @@ function switchTab(tab) {
 
 // ── Resume formatter (Word-compatible HTML) ──────────────────────────────
 function centerRow(content, style) {
-    return `<table width="100%" style="border-collapse:collapse;"><tr><td align="center" style="border:none;padding:0;${style}">${content}</td></tr></table>\n`;
+    return `<p style="text-align:center;mso-line-height-rule:exactly;${style}">${content}</p>\n`;
 }
 
 function twoColRow(left, right, opts = {}) {
