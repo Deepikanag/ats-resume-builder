@@ -32,7 +32,6 @@
 
     <!-- Pinned CDN versions — SRI hashes verified at build time -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></script>
 
@@ -380,6 +379,10 @@
                         ATS Score
                         <span id="tab-score-badge" style="display:none;" class="text-xs font-bold px-1.5 py-0.5 rounded-full"></span>
                     </button>
+                    <button onclick="switchTab('coverletter')" id="tab-coverletter"
+                        class="px-4 py-3 text-xs font-semibold text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors">
+                        Cover Letter
+                    </button>
                 </div>
 
                 <div id="panel-resume" class="flex-1 overflow-auto p-4">
@@ -401,6 +404,26 @@
 
                 <div id="panel-keywords" style="display:none;" class="flex-1 overflow-auto p-4">
                     <div id="keywords-output"></div>
+                </div>
+
+                <div id="panel-coverletter" style="display:none;" class="flex-1 overflow-auto p-4">
+                    <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+                        <span class="text-xs text-slate-400">Tailored to job description &amp; resume</span>
+                        <div class="flex gap-2 flex-wrap">
+                            <button onclick="generateCoverLetter()"
+                                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors font-medium"
+                                id="btn-gen-cover">
+                                ✦ Generate Cover Letter
+                            </button>
+                            <button onclick="copyCoverLetter()"
+                                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded-lg transition-colors">
+                                Copy text
+                            </button>
+                        </div>
+                    </div>
+                    <div id="coverletter-output" class="prose text-sm text-slate-800 bg-white border border-slate-100 rounded-xl p-5 shadow-sm">
+                        <p class="text-slate-400 italic text-center py-8">Click "Generate Cover Letter" after building your resume.</p>
+                    </div>
                 </div>
 
             </div>
@@ -436,6 +459,17 @@
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MAX_RESUME  = 20000;
 const MAX_JD      = 15000;
+
+// ── Shared utilities ──────────────────────────────────────────────────────
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function scoreColor(s) { return s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444'; }
+function scoreBg(s)    { return s >= 75 ? '#ecfdf5' : s >= 60 ? '#fffbeb' : s >= 40 ? '#fff7ed' : '#fef2f2'; }
+function scoreLabel(s) { return s >= 75 ? 'Strong' : s >= 60 ? 'Good' : s >= 40 ? 'Moderate' : 'Weak'; }
+
+function tagPills(arr, color) {
+    if (!Array.isArray(arr) || !arr.length) return '<span class="text-xs text-slate-300">None</span>';
+    return arr.map(k => `<span class="inline-block text-xs px-2 py-0.5 rounded-full mb-1 mr-1" style="background:${color}18;color:${color};">${esc(k)}</span>`).join('');
+}
 
 // ── ATS Scoring Engine ────────────────────────────────────────────────────
 // Local keyword-matching scorer modelled on how real ATS systems
@@ -828,12 +862,8 @@ let preScore          = null;
 let postScore         = null;
 
 // ── Sanitisation helper ────────────────────────────────────────────────────
-function safeHtml(markdown) {
-    const raw = marked.parse(String(markdown || ''));
-    return DOMPurify.sanitize(raw, {
-        ALLOWED_TAGS: ['h1','h2','h3','h4','p','ul','ol','li','strong','em','br','hr','span','div'],
-        ALLOWED_ATTR: []
-    });
+function safeHtml(text) {
+    return esc(text).replace(/\n/g, '<br>');
 }
 
 function setText(id, text) {
@@ -899,14 +929,13 @@ function setupPreScore() {
         bar.style.display = 'flex';
 
         const s = result.score;
-        const col = s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444';
-        const label = s >= 75 ? 'Strong match' : s >= 60 ? 'Good match' : s >= 40 ? 'Moderate' : 'Weak match';
+        const col = scoreColor(s);
 
         document.getElementById('pre-score-fill').style.width = s + '%';
         document.getElementById('pre-score-fill').style.background = col;
         document.getElementById('pre-score-value').textContent = s + '/100';
         document.getElementById('pre-score-value').style.color = col;
-        document.getElementById('pre-score-label').textContent = label;
+        document.getElementById('pre-score-label').textContent = scoreLabel(s) + ' match';
         document.getElementById('pre-score-label').style.color = col;
     };
 
@@ -1007,7 +1036,7 @@ function toggleKeyVisibility() {
 // ── Gemini API ─────────────────────────────────────────────────────────────
 const KNOWN_MODELS = new Set(['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro']);
 
-async function callGemini(systemPrompt, userPrompt, maxTokens = 16384) {
+async function callGemini(systemPrompt, userPrompt, maxTokens = 16384, opts = {}) {
     const apiKey = localStorage.getItem('apiKey');
     if (!apiKey) throw new Error('No API key — open Settings and add your Google Gemini API key.');
 
@@ -1019,14 +1048,12 @@ async function callGemini(systemPrompt, userPrompt, maxTokens = 16384) {
     }
 
     const url = `${GEMINI_BASE}/${encodeURIComponent(saved)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const genConfig = { temperature: 0.3, maxOutputTokens: maxTokens };
+    if (opts.json !== false) genConfig.responseMimeType = 'application/json';
     const body = {
         system_instruction: { parts: [{ text: String(systemPrompt) }] },
         contents: [{ role: 'user', parts: [{ text: String(userPrompt) }] }],
-        generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: maxTokens,
-            responseMimeType: 'application/json'
-        },
+        generationConfig: genConfig,
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_NONE' },
@@ -1168,22 +1195,52 @@ STRICT INTEGRITY RULES:
 - Every claim must be traceable to the original resume
 - Reorder sections and bullets to lead with most relevant content
 
-OUTPUT FORMAT:
-Clean Markdown: ## for section headers (ALL CAPS), ### for job/degree titles, - for bullets. Use **bold** for role titles, company names, degree names, and skill category labels. Use *italics* for relevant modules and dates. No tables. No columns. No em dashes or en dashes anywhere.
-
 ── STAGE 4: THE HIRING MANAGER ──
 Review the rewritten resume as if you are the hiring manager for this specific role:
 - Flag any remaining genuine gaps that rewording cannot fix
 - Identify 2-3 specific, actionable tips to strengthen this application
 - Verify every bullet passes the "would I interview this person?" test
 
-Return ONLY a valid JSON object:
+Return ONLY a valid JSON object with this EXACT structure:
 {
-  "tailored_resume": "full resume in markdown using ## headers",
+  "summary": "professional summary paragraph",
+  "skills": [
+    {"category": "Category Name", "items": "comma-separated skills"}
+  ],
+  "experience": [
+    {
+      "role": "Job Title",
+      "company": "Company Name",
+      "location": "City, Country",
+      "dates": "Start - End",
+      "bullets": ["XYZ format bullet 1", "bullet 2"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Degree Name - Specialisation",
+      "institution": "University Name",
+      "dates": "Start - End",
+      "modules": "comma-separated relevant modules or empty string",
+      "extras": "dissertation, publication, or project info or empty string"
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project Name",
+      "dates": "Start - End",
+      "description": "one-line description"
+    }
+  ],
+  "certifications": [
+    {"name": "Cert Name", "issuer": "Issuing Org", "date": "date or In Progress"}
+  ],
   "keywords_added": ["keywords woven in that were not in the original"],
-  "gaps": ["honest gaps the hiring manager identified that cannot be addressed by rewording"],
-  "tips": ["2-3 specific actionable tips from the hiring manager review"]
-}`;
+  "gaps": ["honest gaps the hiring manager identified"],
+  "tips": ["2-3 specific actionable tips"]
+}
+
+CRITICAL: Return ONLY the JSON. No markdown. No code fences. No preamble. Every field must be present even if empty array.`;
 
 
 function buildResumePrompt(i) {
@@ -1211,7 +1268,7 @@ Missing soft skills to weave in: ${missingSoft.join(', ') || 'None'}
 Missing certifications/education keywords: ${missingCerts.join(', ') || 'None'}
 Missing resume sections: ${gapAnalysis ? gapAnalysis.breakdown.sections.missing.join(', ') || 'None' : 'N/A'}
 
-REMINDER: Use ## for ALL section headers in CAPS (## PROFESSIONAL SUMMARY, ## WORK EXPERIENCE, ## TECHNICAL SKILLS, ## EDUCATION, etc.) - this is critical for ATS parsing. Every work bullet must follow Google X-Y-Z format: "Accomplished [X] as measured by [Y], by doing [Z]." NEVER use em dashes or en dashes - use | as separator and - for date ranges.
+REMINDER: Return structured JSON with separate fields for each section. Every work bullet must follow Google X-Y-Z format: "Accomplished [X] as measured by [Y], by doing [Z]." NEVER use em dashes or en dashes. NEVER use markdown in any field - return plain text only.
 
 --- BASE RESUME ---
 ${i.base}
@@ -1242,12 +1299,108 @@ async function tailorResume() {
 }
 
 
+// ── Unified resume renderer ───────────────────────────────────────────────
+const SECTION_TITLES = {
+    summary: 'Professional Summary', skills: 'Technical Skills',
+    experience: 'Work Experience', education: 'Education',
+    projects: 'Projects', certifications: 'Certifications & Awards'
+};
+
+function renderResume(data, inputs, fmt) {
+    let out = fmt.header(inputs);
+    for (const key of RESUME_SECTIONS) {
+        const val = data[key];
+        if (!val || (Array.isArray(val) && !val.length)) continue;
+        out += fmt.sectionHead(SECTION_TITLES[key]);
+        out += fmt[key](val);
+    }
+    return out;
+}
+
+const FMT_TEXT = {
+    header(inputs) {
+        let s = (inputs.name || 'Name') + '\n';
+        if (inputs.contact) s += inputs.contact + '\n';
+        return s + '\n';
+    },
+    sectionHead(title) { return title.toUpperCase() + '\n'; },
+    summary(val) { return val + '\n\n'; },
+    skills(arr) { return arr.map(s => `${s.category}: ${s.items}`).join('\n') + '\n\n'; },
+    experience(arr) {
+        return arr.map(e => {
+            let s = `${e.role} | ${e.company}, ${e.location} ${e.dates}`;
+            if (e.bullets?.length) s += '\n' + e.bullets.map(b => `- ${b}`).join('\n');
+            return s;
+        }).join('\n') + '\n\n';
+    },
+    education(arr) {
+        return arr.map(e => {
+            let s = `${e.degree}\n${e.institution} ${e.dates}`;
+            if (e.modules) s += `\nRelevant Modules: ${e.modules}`;
+            if (e.extras) s += '\n' + e.extras;
+            return s;
+        }).join('\n') + '\n\n';
+    },
+    projects(arr) {
+        return arr.map(p => {
+            let s = `${p.name} | ${p.dates}`;
+            if (p.description) s += '\n' + p.description;
+            return s;
+        }).join('\n') + '\n\n';
+    },
+    certifications(arr) { return arr.map(c => `- ${c.name} | ${c.issuer} | ${c.date}`).join('\n') + '\n'; }
+};
+
+const FMT_PREVIEW = {
+    header(inputs) {
+        let h = `<h1 class="text-2xl font-bold text-center mb-0">${esc(inputs.name || 'Name')}</h1>`;
+        if (inputs.contact) h += `<p class="text-center text-xs text-slate-500 mb-3">${esc(inputs.contact)}</p>`;
+        return h;
+    },
+    sectionHead(title) {
+        return `<h2 class="text-sm font-bold uppercase tracking-wide text-slate-800 border-b border-slate-300 pb-1 mt-4 mb-2">${title}</h2>`;
+    },
+    summary(val) { return `<p class="text-sm text-slate-700 leading-relaxed">${esc(val)}</p>`; },
+    skills(arr) {
+        return arr.map(s => `<p class="text-sm mb-0.5"><strong class="text-slate-800">${esc(s.category)}:</strong> ${esc(s.items)}</p>`).join('');
+    },
+    experience(arr) {
+        return arr.map(e => {
+            let h = `<div class="flex justify-between items-baseline mt-3 mb-1"><div><strong class="text-sm">${esc(e.role)}</strong> <span class="text-slate-400">|</span> <span class="text-blue-600 text-sm">${esc(e.company)}, ${esc(e.location)}</span></div><span class="text-xs text-slate-500 italic whitespace-nowrap">${esc(e.dates)}</span></div>`;
+            h += '<ul class="list-disc pl-5 space-y-0.5">';
+            (e.bullets || []).forEach(b => h += `<li class="text-sm text-slate-700">${esc(b)}</li>`);
+            return h + '</ul>';
+        }).join('');
+    },
+    education(arr) {
+        return arr.map(e => {
+            let h = `<div class="mt-2"><strong class="text-sm">${esc(e.degree)}</strong></div>`;
+            h += `<div class="flex justify-between"><span class="text-sm text-blue-600">${esc(e.institution)}</span><span class="text-xs text-slate-500 italic">${esc(e.dates)}</span></div>`;
+            if (e.modules) h += `<p class="text-xs text-slate-500 italic">Relevant Modules: ${esc(e.modules)}</p>`;
+            if (e.extras) h += `<p class="text-xs text-slate-600">${esc(e.extras)}</p>`;
+            return h;
+        }).join('');
+    },
+    projects(arr) {
+        return arr.map(p => {
+            let h = `<div class="flex justify-between mt-1"><strong class="text-sm">${esc(p.name)}</strong><span class="text-xs text-slate-500 italic">${esc(p.dates)}</span></div>`;
+            if (p.description) h += `<p class="text-sm text-slate-700">${esc(p.description)}</p>`;
+            return h;
+        }).join('');
+    },
+    certifications(arr) {
+        let h = '<ul class="list-disc pl-5 space-y-0.5">';
+        arr.forEach(c => h += `<li class="text-sm"><strong>${esc(c.name)}</strong> <span class="text-slate-400">|</span> ${esc(c.issuer)} <span class="text-slate-400">|</span> <em class="text-slate-500">${esc(c.date)}</em></li>`);
+        return h + '</ul>';
+    }
+};
+
 // ── Apply results ──────────────────────────────────────────────────────────
 function applyResumeResult(data, inputs) {
-    currentResume     = String(data.tailored_resume || '');
-    currentResumeHtml = safeHtml(currentResume);
-    document.getElementById('resume-output').innerHTML = currentResumeHtml;
     currentKeyData = data;
+    currentResume = data.summary ? renderResume(data, inputs, FMT_TEXT) : (data.tailored_resume || '');
+    currentResumeHtml = data.summary ? renderResume(data, inputs, FMT_PREVIEW) : safeHtml(currentResume);
+    document.getElementById('resume-output').innerHTML = currentResumeHtml;
 
     preScore  = calculateAtsScore(inputs.jd, inputs.base, inputs.jobTitle);
     postScore = calculateAtsScore(inputs.jd, currentResume, inputs.jobTitle);
@@ -1257,28 +1410,17 @@ function applyResumeResult(data, inputs) {
 
 // ── Render: ATS Score ─────────────────────────────────────────────────────
 function renderAtsScore(pre, post, geminiData) {
-    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const scoreColor = s => s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444';
-    const scoreBg    = s => s >= 75 ? '#ecfdf5' : s >= 60 ? '#fffbeb' : s >= 40 ? '#fff7ed' : '#fef2f2';
-    const scoreLabel = s => s >= 75 ? 'Strong' : s >= 60 ? 'Good' : s >= 40 ? 'Moderate' : 'Weak';
-
     const preS  = pre  ? pre.score  : 0;
     const postS = post ? post.score : 0;
     const delta = postS - preS;
     const preCol  = scoreColor(preS);
     const postCol = scoreColor(postS);
 
-    // Tab badge
     const badge = document.getElementById('tab-score-badge');
     badge.style.display = 'inline';
     badge.textContent = postS;
     badge.style.background = scoreBg(postS);
     badge.style.color = postCol;
-
-    const tags = (arr, color) => {
-        if (!Array.isArray(arr) || !arr.length) return '<span class="text-xs text-slate-300">None</span>';
-        return arr.map(k => `<span class="inline-block text-xs px-2 py-0.5 rounded-full mb-1 mr-1" style="background:${color}18;color:${color};">${esc(k)}</span>`).join('');
-    };
 
     const breakdownBar = (label, score, max, color) => `
         <div class="flex items-center gap-2 mb-2">
@@ -1326,38 +1468,38 @@ function renderAtsScore(pre, post, geminiData) {
         <!-- Keywords matched -->
         ${bd && bd.hardSkills.matches.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Hard Skills Matched</p>
-            <div>${tags(bd.hardSkills.matches, '#10b981')}</div>
+            <div>${tagPills(bd.hardSkills.matches, '#10b981')}</div>
         </div>` : ''}
 
         ${bd && bd.hardSkills.missing.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Hard Skills Still Missing (Genuine Gaps)</p>
-            <div>${tags(bd.hardSkills.missing, '#ef4444')}</div>
+            <div>${tagPills(bd.hardSkills.missing, '#ef4444')}</div>
         </div>` : ''}
 
         ${bd && bd.softSkills.matches.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Soft Skills Matched</p>
-            <div>${tags(bd.softSkills.matches, '#10b981')}</div>
+            <div>${tagPills(bd.softSkills.matches, '#10b981')}</div>
         </div>` : ''}
 
         ${bd && bd.softSkills.missing.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Soft Skills Still Missing</p>
-            <div>${tags(bd.softSkills.missing, '#f59e0b')}</div>
+            <div>${tagPills(bd.softSkills.missing, '#f59e0b')}</div>
         </div>` : ''}
 
         ${bd && bd.certEducation.missing.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Certifications/Education Gaps</p>
-            <div>${tags(bd.certEducation.missing, '#ef4444')}</div>
+            <div>${tagPills(bd.certEducation.missing, '#ef4444')}</div>
         </div>` : ''}
 
         ${bd && bd.sections.missing.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Missing Resume Sections</p>
-            <div>${tags(bd.sections.missing, '#f97316')}</div>
+            <div>${tagPills(bd.sections.missing, '#f97316')}</div>
         </div>` : ''}
 
         <!-- Keywords added by AI -->
         ${Array.isArray(geminiData.keywords_added) && geminiData.keywords_added.length ? `<div>
             <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Keywords Added by AI</p>
-            <div>${tags(geminiData.keywords_added, '#6366f1')}</div>
+            <div>${tagPills(geminiData.keywords_added, '#6366f1')}</div>
         </div>` : ''}
 
         <!-- Gemini qualitative feedback -->
@@ -1377,125 +1519,80 @@ function renderAtsScore(pre, post, geminiData) {
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-    ['resume','keywords'].forEach(t => {
+    ['resume','keywords','coverletter'].forEach(t => {
         document.getElementById(`panel-${t}`).style.display = t === tab ? 'block' : 'none';
         document.getElementById(`tab-${t}`).classList.toggle('tab-active', t === tab);
     });
 }
 
-// ── Resume formatter (Word-compatible HTML) ──────────────────────────────
+// ── DOCX rendering (Word-compatible HTML) ─────────────────────────────────
 function centerRow(content, style) {
     return `<p style="text-align:center;mso-line-height-rule:exactly;${style}">${content}</p>\n`;
 }
-
 function twoColRow(left, right, opts = {}) {
     const mt = opts.marginTop || '4pt';
-    const lStyle = opts.leftStyle || '';
-    const rStyle = opts.rightStyle || 'font-style:italic;';
     return `<table width="100%" style="border-collapse:collapse;margin:${mt} 0 0;"><tr>` +
-        `<td style="border:none;padding:0;font-size:10pt;${lStyle}">${left}</td>` +
-        `<td align="right" style="border:none;padding:0;font-size:10pt;white-space:nowrap;${rStyle}">${right}</td>` +
+        `<td style="border:none;padding:0;font-size:10pt;${opts.leftStyle||''}">${left}</td>` +
+        `<td align="right" style="border:none;padding:0;font-size:10pt;white-space:nowrap;${opts.rightStyle||'font-style:italic;'}">${right}</td>` +
         `</tr></table>\n`;
 }
 
-function buildResumeHtml(md) {
-    const clean = md.replace(/—/g, '|').replace(/–/g, '-');
-    const lines = clean.split('\n');
-    let html = '';
-    let inList = false;
-    let centerLines = [];
+const DS = {
+    body: 'font-size:10pt;margin:0;line-height:1.2;',
+    section: 'font-size:11pt;font-weight:bold;text-transform:uppercase;margin:8pt 0 0;padding-bottom:2pt;border-bottom:1pt solid #333;',
+    list: 'margin:1pt 0 3pt;padding-left:18pt;',
+    li: 'font-size:10pt;margin-bottom:0;line-height:1.2;',
+    title: 'font-size:11pt;font-weight:bold;margin:6pt 0 0;',
+};
 
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i].trimEnd();
-        if (/^\s*-{3,}\s*$/.test(line)) continue;
-
-        const centerMatch = line.match(/^<center>(.*?)<\/center>/i);
-        if (centerMatch) {
-            centerLines.push(centerMatch[1].trim());
-            continue;
-        }
-
-        // Flush centered header block (name + optional tagline + contact)
-        if (centerLines.length && !line.match(/^<center>/i)) {
-            if (centerLines.length >= 1) html += centerRow(centerLines[0], 'font-size:22pt;font-weight:bold;');
-            if (centerLines.length >= 2) html += centerRow(fmtInline(centerLines[1]), 'font-size:10pt;color:#444;');
-            if (centerLines.length >= 3) html += centerRow(fmtInline(centerLines[2]), 'font-size:9pt;color:#333;');
-            for (let j = 3; j < centerLines.length; j++) html += centerRow(fmtInline(centerLines[j]), 'font-size:9pt;color:#333;');
-            centerLines = [];
-        }
-
-        if (/^#{2}\s+/.test(line)) {
-            if (inList) { html += '</ul>\n'; inList = false; }
-            const title = line.replace(/^#{2,}\s+/, '').replace(/\*\*/g, '').trim();
-            html += `<p style="font-size:11pt;font-weight:bold;text-transform:uppercase;margin:8pt 0 0;padding-bottom:2pt;border-bottom:1pt solid #333;">${title}</p>\n`;
-            continue;
-        }
-
-        if (/^#{3}\s+/.test(line)) {
-            if (inList) { html += '</ul>\n'; inList = false; }
-            const raw = line.replace(/^#{3,}\s+/, '').trim();
-            html += fmtEntryRow(raw);
-            continue;
-        }
-
-        if (/^\s*[-*]\s+/.test(line)) {
-            if (!inList) { html += '<ul style="margin:1pt 0 3pt;padding-left:18pt;">\n'; inList = true; }
-            const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
-            html += `<li style="font-size:10pt;margin-bottom:0;line-height:1.2;">${fmtInline(bullet)}</li>\n`;
-            continue;
-        }
-
-        if (!line.trim()) {
-            if (inList) { html += '</ul>\n'; inList = false; }
-            continue;
-        }
-
-        if (inList) { html += '</ul>\n'; inList = false; }
-        const instDate = line.match(/^(.+?)\s+\*([^*]+)\*\s*$/);
-        if (instDate) {
-            html += twoColRow(fmtInline(instDate[1].trim()), instDate[2].trim(),
+const FMT_DOCX = {
+    header(inputs) {
+        let h = centerRow(esc(inputs.name || 'Name'), 'font-size:22pt;font-weight:bold;');
+        if (inputs.contact) h += centerRow(esc(inputs.contact), 'font-size:9pt;color:#333;');
+        return h;
+    },
+    sectionHead(title) { return `<p style="${DS.section}">${title}</p>\n`; },
+    summary(val) { return `<p style="${DS.body}">${esc(val)}</p>\n`; },
+    skills(arr) {
+        return arr.map(s => `<p style="${DS.body}"><strong>${esc(s.category)}:</strong> ${esc(s.items)}</p>\n`).join('');
+    },
+    experience(arr) {
+        return arr.map(e => {
+            const titleHtml = `<strong>${esc(e.role)}</strong> <span style="font-weight:normal;">|</span> <span style="color:#1a6fb5;">${esc(e.company)}, ${esc(e.location)}</span>`;
+            let h = twoColRow(titleHtml, esc(e.dates),
+                { marginTop: '6pt', leftStyle: 'font-size:11pt;', rightStyle: 'font-size:10pt;color:#555;' });
+            if (e.bullets?.length) {
+                h += `<ul style="${DS.list}">\n`;
+                e.bullets.forEach(b => h += `<li style="${DS.li}">${esc(b)}</li>\n`);
+                h += '</ul>\n';
+            }
+            return h;
+        }).join('');
+    },
+    education(arr) {
+        return arr.map(e => {
+            let h = `<p style="${DS.title}"><strong>${esc(e.degree)}</strong></p>\n`;
+            h += twoColRow(esc(e.institution), esc(e.dates),
                 { marginTop: '0', leftStyle: 'color:#1a6fb5;', rightStyle: 'font-style:italic;color:#555;' });
-        } else {
-            html += `<p style="font-size:10pt;margin:0;line-height:1.2;">${fmtInline(line)}</p>\n`;
-        }
+            if (e.modules) h += `<p style="${DS.body}"><em>Relevant Modules: ${esc(e.modules)}</em></p>\n`;
+            if (e.extras) h += `<p style="${DS.body}">${esc(e.extras)}</p>\n`;
+            return h;
+        }).join('');
+    },
+    projects(arr) {
+        return arr.map(p => {
+            let h = twoColRow(`<strong>${esc(p.name)}</strong>`, esc(p.dates),
+                { marginTop: '4pt', leftStyle: 'font-size:10pt;', rightStyle: 'font-size:10pt;font-style:italic;color:#555;' });
+            if (p.description) h += `<p style="${DS.body}">${esc(p.description)}</p>\n`;
+            return h;
+        }).join('');
+    },
+    certifications(arr) {
+        let h = `<ul style="${DS.list}">\n`;
+        arr.forEach(c => h += `<li style="${DS.li}"><strong>${esc(c.name)}</strong> | ${esc(c.issuer)} | <em>${esc(c.date)}</em></li>\n`);
+        return h + '</ul>\n';
     }
-    if (centerLines.length) {
-        if (centerLines.length >= 1) html += centerRow(centerLines[0], 'font-size:22pt;font-weight:bold;');
-        for (let j = 1; j < centerLines.length; j++) html += centerRow(fmtInline(centerLines[j]), 'font-size:9pt;color:#333;');
-    }
-    if (inList) html += '</ul>\n';
-    return html;
-}
-
-function fmtInline(text) {
-    return text
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/—/g, '|').replace(/–/g, '-');
-}
-
-function fmtEntryRow(raw) {
-    const dateMatch = raw.match(/\*([^*]+)\*\s*$/);
-    const date = dateMatch ? dateMatch[1].trim() : '';
-    const rest = dateMatch ? raw.slice(0, dateMatch.index).trim() : raw;
-
-    // Split "**Role** | Company, Location" into role (bold black) and company (blue)
-    const parts = rest.split(/\s*\|\s*/);
-    let titleHtml = '';
-    if (parts.length >= 2) {
-        const role = fmtInline(parts[0]);
-        const companyParts = parts.slice(1).join(' | ');
-        titleHtml = `${role} <span style="font-weight:normal;">|</span> <span style="color:#1a6fb5;">${fmtInline(companyParts)}</span>`;
-    } else {
-        titleHtml = fmtInline(rest);
-    }
-
-    if (date) {
-        return twoColRow(titleHtml, date,
-            { marginTop: '6pt', leftStyle: 'font-size:11pt;', rightStyle: 'font-size:10pt;color:#555;' });
-    }
-    return `<p style="font-size:11pt;font-weight:bold;margin:6pt 0 0;">${titleHtml}</p>\n`;
-}
+};
 
 // ── Download DOCX ──────────────────────────────────────────────────────────
 function downloadDocx() {
@@ -1504,7 +1601,7 @@ function downloadDocx() {
     const jobTitle = String(document.getElementById('jobtitle-input').value || 'Role').replace(/[^a-z0-9\s\-]/gi,'').trim();
     const filename = `Resume_${company}_${jobTitle}.docx`.replace(/\s+/g,'_');
 
-    const resumeBody = buildResumeHtml(currentResume);
+    const resumeBody = currentKeyData?.summary ? renderResume(currentKeyData, getInputs(), FMT_DOCX) : safeHtml(currentResume);
     const docHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 body { font-family:Calibri,'Segoe UI',Arial,sans-serif; font-size:11pt; margin:0; padding:0; color:#000; line-height:1.15; }
 table { border:none; }
@@ -1542,6 +1639,50 @@ function copyResumeText() {
     navigator.clipboard.writeText(currentResume).then(() => toast('Copied to clipboard!'));
 }
 
+// ── Cover Letter ──────────────────────────────────────────────────────────
+let currentCoverLetter = '';
+
+const COVER_LETTER_SYSTEM = `You are an expert cover letter writer. Write a concise, professional cover letter (3-4 paragraphs, under 350 words).
+- Opening: mention the specific role and company, show genuine interest
+- Body: connect 2-3 key experiences/skills from the resume to the job requirements
+- Closing: express enthusiasm and availability
+- Tone: confident but not arrogant, professional but personable
+- Do NOT use generic filler phrases like "I am writing to express my interest"
+- Do NOT repeat the resume verbatim — synthesize and connect
+Return ONLY the cover letter text, no subject line, no "Dear Hiring Manager" header, no sign-off name.`;
+
+async function generateCoverLetter() {
+    if (!currentResume) { toastError('Build your resume first.'); return; }
+    const inputs = getInputs();
+    if (!inputs.jd) { toastError('Please paste a job description first.'); return; }
+
+    const btn = document.getElementById('btn-gen-cover');
+    const out = document.getElementById('coverletter-output');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    out.innerHTML = '<p class="text-slate-400 italic text-center py-8">Generating cover letter...</p>';
+
+    try {
+        const userPrompt = `Company: ${inputs.company || 'the company'}\nRole: ${inputs.jobTitle || 'the role'}\n\nJob Description:\n${inputs.jd}\n\nCandidate Resume:\n${currentResume}`;
+        const raw = await callGemini(COVER_LETTER_SYSTEM, userPrompt, 2048, { json: false });
+        currentCoverLetter = raw.trim();
+        const paragraphs = currentCoverLetter.split(/\n\n+/).filter(p => p.trim());
+        out.innerHTML = paragraphs.map(p => `<p class="mb-3 leading-relaxed">${esc(p.trim())}</p>`).join('');
+        toast('Cover letter generated!');
+    } catch (err) {
+        out.innerHTML = `<p class="text-red-500 text-center py-8">${esc(err.message)}</p>`;
+        toastError(err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '✦ Generate Cover Letter';
+    }
+}
+
+function copyCoverLetter() {
+    if (!currentCoverLetter) { toastError('Generate a cover letter first.'); return; }
+    navigator.clipboard.writeText(currentCoverLetter).then(() => toast('Cover letter copied!'));
+}
+
 // ── History ────────────────────────────────────────────────────────────────
 function saveHistory(inputs) {
     const all = JSON.parse(localStorage.getItem('history') || '[]');
@@ -1552,6 +1693,9 @@ function saveHistory(inputs) {
         link:     inputs.link,
         date:     new Date().toLocaleDateString(),
         resume:   currentResume,
+        keyData:  currentKeyData || null,
+        name:     inputs.name,
+        contact:  inputs.contact,
         scoreBefore: preScore  ? preScore.score  : null,
         scoreAfter:  postScore ? postScore.score : null
     });
@@ -1565,7 +1709,6 @@ function renderHistory() {
     if (!all.length) { section.style.display = 'none'; return; }
     section.style.display = 'block';
 
-    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     document.getElementById('history-list').innerHTML = DOMPurify.sanitize(
         all.map(e => {
             // Support both old format (score 0-10) and new format (scoreAfter 0-100)
@@ -1599,7 +1742,16 @@ function loadFromHistory(id) {
     document.getElementById('company-input').value  = e.company  || '';
     document.getElementById('jobtitle-input').value = e.jobTitle || '';
     document.getElementById('link-input').value      = e.link     || '';
-    if (e.resume) {
+    if (e.keyData?.summary) {
+        const inputs = { name: e.name || '', contact: e.contact || '' };
+        currentKeyData    = e.keyData;
+        currentResume     = renderResume(e.keyData, inputs, FMT_TEXT);
+        currentResumeHtml = renderResume(e.keyData, inputs, FMT_PREVIEW);
+        document.getElementById('resume-output').innerHTML = currentResumeHtml;
+        showState('results');
+        switchTab('resume');
+    } else if (e.resume) {
+        currentKeyData    = null;
         currentResume     = e.resume;
         currentResumeHtml = safeHtml(e.resume);
         document.getElementById('resume-output').innerHTML = currentResumeHtml;
@@ -1801,10 +1953,9 @@ function renderJobResults() {
 }
 
 function renderJobCard(job) {
-    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const s = job._atsScore || 0;
-    const col = s >= 75 ? '#10b981' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444';
-    const bg  = s >= 75 ? '#ecfdf5' : s >= 60 ? '#fffbeb' : s >= 40 ? '#fff7ed' : '#fef2f2';
+    const col = scoreColor(s);
+    const bg  = scoreBg(s);
     const bookmarked = isBookmarked(job.slug);
     const tags = (job.tags || []).slice(0, 4).map(t => `<span class="job-tag">${esc(t)}</span>`).join('');
     const remoteBadge = job.remote ? '<span class="job-tag job-tag-remote">Remote</span>' : '';
@@ -1960,7 +2111,6 @@ async function prepInterview(slug) {
 }
 
 function renderInterviewQuestions(d) {
-    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const typeColor = { technical: '#6366f1', behavioral: '#f59e0b', situational: '#10b981', company: '#8b5cf6' };
     const typeLabel = { technical: 'Technical', behavioral: 'Behavioral', situational: 'Situational', company: 'Company Fit' };
 
