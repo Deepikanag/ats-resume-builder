@@ -897,11 +897,11 @@ function setupCharCounters() {
     });
     // Resume sections combined counter
     const updateResumeCount = () => {
-        const total = RESUME_SECTIONS.reduce((sum, s) => sum + document.getElementById('resume-' + s).value.length, 0);
+        const total = RESUME_FIELDS.reduce((sum, s) => sum + document.getElementById('resume-' + s).value.length, 0);
         setText('resume-char-count', `${total.toLocaleString()} / ${MAX_RESUME.toLocaleString()} chars`);
         document.getElementById('resume-char-count').style.color = total > MAX_RESUME * 0.9 ? '#f59e0b' : '#cbd5e1';
     };
-    RESUME_SECTIONS.forEach(s => {
+    RESUME_FIELDS.forEach(s => {
         document.getElementById('resume-' + s).addEventListener('input', updateResumeCount);
     });
 }
@@ -950,14 +950,15 @@ function setupPreScore() {
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
-const RESUME_SECTIONS = ['summary','skills','experience','education','projects','certifications'];
+const RESUME_FIELDS = ['summary','skills','experience','education','projects','certifications'];
+const RESUME_SECTIONS = ['summary','experience','skills','education','projects','certifications'];
 
 function loadSettings() {
     const g = k => localStorage.getItem(k) || '';
     document.getElementById('api-key-input').value     = g('apiKey');
     document.getElementById('name-input').value         = g('userName');
     document.getElementById('contact-input').value      = g('userContact');
-    RESUME_SECTIONS.forEach(s => {
+    RESUME_FIELDS.forEach(s => {
         document.getElementById('resume-' + s).value = g('resume_' + s);
     });
     // Migrate old single baseResume to experience section
@@ -995,7 +996,7 @@ function saveSetup() {
     localStorage.setItem('apiKey',      apiKey);
     localStorage.setItem('userName',    trim('name-input').slice(0, 100));
     localStorage.setItem('userContact', trim('contact-input').slice(0, 200));
-    RESUME_SECTIONS.forEach(s => {
+    RESUME_FIELDS.forEach(s => {
         localStorage.setItem('resume_' + s, document.getElementById('resume-' + s).value.trim());
     });
     localStorage.setItem('baseResume', buildBaseResume().slice(0, MAX_RESUME));
@@ -1009,7 +1010,7 @@ function saveSetup() {
 function clearAllData() {
     if (!confirm('This will permanently delete your saved resume, API key, and all history. Continue?')) return;
     ['apiKey','baseResume','userName','userContact','geminiModel','history',
-     ...RESUME_SECTIONS.map(s => 'resume_' + s)].forEach(k => localStorage.removeItem(k));
+     ...RESUME_FIELDS.map(s => 'resume_' + s)].forEach(k => localStorage.removeItem(k));
     loadSettings();
     renderHistory();
     toast('All data cleared.');
@@ -1169,12 +1170,12 @@ Rewrite the resume following these strict rules:
 
 RESUME FORMAT (match this structure exactly):
 - Name centred at top, contact info on one line below (phone | email | LinkedIn | location)
-- Sections in this order: PROFESSIONAL SUMMARY, TECHNICAL SKILLS, WORK EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS & AWARDS (skip empty sections)
+- Sections in this order: PROFESSIONAL SUMMARY, WORK EXPERIENCE, TECHNICAL SKILLS, EDUCATION, PROJECTS & LEADERSHIP, CERTIFICATIONS & AWARDS (skip empty sections)
 - Section headers: ALL CAPS, bold, with a horizontal rule below
-- Each job entry on one line: **Role** | Company, Location followed by date range right-aligned (e.g. "Oct 2022 - Oct 2023")
+- Each job entry uses two lines: Company Name (bold) with location right-aligned, then Job Title (italic) with date range right-aligned (e.g. "Oct 2022 - Oct 2023")
 - NEVER use em dashes (—) or en dashes (–) anywhere in the resume. Use | as separator, - for date ranges
 - Bullets under each role: 3-6 per role, most relevant first
-- Education: **Degree Name** on one line, Institution and date on next line, then relevant modules in italics
+- Education: Institution Name (bold) on first line, Degree Name (italic) with graduation date right-aligned on next line, then relevant modules in italics
 - Skills: grouped by category with bold label (e.g. "**Networking:** TCP/IP, VLANs, Layer 1/2/3")
 - Keep to a concise, one-page-equivalent length
 
@@ -1301,9 +1302,9 @@ async function tailorResume() {
 
 // ── Unified resume renderer ───────────────────────────────────────────────
 const SECTION_TITLES = {
-    summary: 'Professional Summary', skills: 'Technical Skills',
-    experience: 'Work Experience', education: 'Education',
-    projects: 'Projects', certifications: 'Certifications & Awards'
+    summary: 'Professional Summary', experience: 'Work Experience',
+    skills: 'Technical Skills', education: 'Education',
+    projects: 'Projects & Leadership', certifications: 'Certifications & Awards'
 };
 
 function renderResume(data, inputs, fmt) {
@@ -1328,14 +1329,14 @@ const FMT_TEXT = {
     skills(arr) { return arr.map(s => `${s.category}: ${s.items}`).join('\n') + '\n\n'; },
     experience(arr) {
         return arr.map(e => {
-            let s = `${e.role} | ${e.company}, ${e.location} ${e.dates}`;
+            let s = `${e.company} | ${e.location}\n${e.role} | ${e.dates}`;
             if (e.bullets?.length) s += '\n' + e.bullets.map(b => `- ${b}`).join('\n');
             return s;
         }).join('\n') + '\n\n';
     },
     education(arr) {
         return arr.map(e => {
-            let s = `${e.degree}\n${e.institution} ${e.dates}`;
+            let s = `${e.institution}\n${e.degree} | ${e.dates}`;
             if (e.modules) s += `\nRelevant Modules: ${e.modules}`;
             if (e.extras) s += '\n' + e.extras;
             return s;
@@ -1366,7 +1367,8 @@ const FMT_PREVIEW = {
     },
     experience(arr) {
         return arr.map(e => {
-            let h = `<div class="flex justify-between items-baseline mt-3 mb-1"><div><strong class="text-sm">${esc(e.role)}</strong> <span class="text-slate-400">|</span> <span class="text-blue-600 text-sm">${esc(e.company)}, ${esc(e.location)}</span></div><span class="text-xs text-slate-500 italic whitespace-nowrap">${esc(e.dates)}</span></div>`;
+            let h = `<div class="flex justify-between items-baseline mt-3"><strong class="text-sm">${esc(e.company)}</strong><span class="text-xs text-slate-500">${esc(e.location)}</span></div>`;
+            h += `<div class="flex justify-between items-baseline mb-1"><em class="text-sm text-slate-700">${esc(e.role)}</em><span class="text-xs text-slate-500 italic">${esc(e.dates)}</span></div>`;
             h += '<ul class="list-disc pl-5 space-y-0.5">';
             (e.bullets || []).forEach(b => h += `<li class="text-sm text-slate-700">${esc(b)}</li>`);
             return h + '</ul>';
@@ -1374,8 +1376,8 @@ const FMT_PREVIEW = {
     },
     education(arr) {
         return arr.map(e => {
-            let h = `<div class="mt-2"><strong class="text-sm">${esc(e.degree)}</strong></div>`;
-            h += `<div class="flex justify-between"><span class="text-sm text-blue-600">${esc(e.institution)}</span><span class="text-xs text-slate-500 italic">${esc(e.dates)}</span></div>`;
+            let h = `<div class="mt-2"><strong class="text-sm">${esc(e.institution)}</strong></div>`;
+            h += `<div class="flex justify-between items-baseline"><em class="text-sm text-slate-700">${esc(e.degree)}</em><span class="text-xs text-slate-500 italic">${esc(e.dates)}</span></div>`;
             if (e.modules) h += `<p class="text-xs text-slate-500 italic">Relevant Modules: ${esc(e.modules)}</p>`;
             if (e.extras) h += `<p class="text-xs text-slate-600">${esc(e.extras)}</p>`;
             return h;
@@ -1558,9 +1560,10 @@ const FMT_DOCX = {
     },
     experience(arr) {
         return arr.map(e => {
-            const titleHtml = `<strong>${esc(e.role)}</strong> <span style="font-weight:normal;">|</span> <span style="color:#1a6fb5;">${esc(e.company)}, ${esc(e.location)}</span>`;
-            let h = twoColRow(titleHtml, esc(e.dates),
-                { marginTop: '6pt', leftStyle: 'font-size:11pt;', rightStyle: 'font-size:10pt;color:#555;' });
+            let h = twoColRow(`<strong>${esc(e.company)}</strong>`, esc(e.location),
+                { marginTop: '6pt', leftStyle: 'font-size:11pt;', rightStyle: 'font-size:10pt;' });
+            h += twoColRow(`<em>${esc(e.role)}</em>`, esc(e.dates),
+                { marginTop: '0', leftStyle: 'font-size:10pt;font-style:italic;', rightStyle: 'font-size:10pt;font-style:italic;' });
             if (e.bullets?.length) {
                 h += `<ul style="${DS.list}">\n`;
                 e.bullets.forEach(b => h += `<li style="${DS.li}">${esc(b)}</li>\n`);
@@ -1571,9 +1574,10 @@ const FMT_DOCX = {
     },
     education(arr) {
         return arr.map(e => {
-            let h = `<p style="${DS.title}"><strong>${esc(e.degree)}</strong></p>\n`;
-            h += twoColRow(esc(e.institution), esc(e.dates),
-                { marginTop: '0', leftStyle: 'color:#1a6fb5;', rightStyle: 'font-style:italic;color:#555;' });
+            let h = twoColRow(`<strong>${esc(e.institution)}</strong>`, '',
+                { marginTop: '6pt', leftStyle: 'font-size:11pt;', rightStyle: '' });
+            h += twoColRow(`<em>${esc(e.degree)}</em>`, esc(e.dates),
+                { marginTop: '0', leftStyle: 'font-size:10pt;font-style:italic;', rightStyle: 'font-size:10pt;font-style:italic;' });
             if (e.modules) h += `<p style="${DS.body}"><em>Relevant Modules: ${esc(e.modules)}</em></p>\n`;
             if (e.extras) h += `<p style="${DS.body}">${esc(e.extras)}</p>\n`;
             return h;
